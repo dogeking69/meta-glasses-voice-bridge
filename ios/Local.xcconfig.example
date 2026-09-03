@@ -1,0 +1,8 @@
+// Copy this file to Local.xcconfig and fill in your own values.
+// Local.xcconfig is gitignored and never committed.
+//
+// Find your Team ID in Xcode: Settings -> Accounts -> your Apple ID -> Team,
+// or at https://developer.apple.com/account under Membership details.
+
+PRODUCT_BUNDLE_IDENTIFIER = com.yourname.voicebridge
+DEVELOPMENT_TEAM = YOURTEAMID

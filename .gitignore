@@ -12,3 +12,4 @@ ios/**/xcuserdata/
 ios/**/*.xcworkspace/xcshareddata/
 ios/build/
 .DS_Store
+ios/Local.xcconfig

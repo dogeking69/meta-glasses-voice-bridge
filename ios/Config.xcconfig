@@ -1,0 +1,10 @@
+// Shared build settings for VoiceBridge.
+//
+// Your Apple Team ID and bundle identifier are personal, so they do not live
+// here. Copy Local.xcconfig.example to Local.xcconfig and fill it in — that
+// file is gitignored and overrides the defaults below.
+
+PRODUCT_BUNDLE_IDENTIFIER = com.example.voicebridge
+DEVELOPMENT_TEAM =
+
+#include? "Local.xcconfig"

@@ -113,9 +113,17 @@ Leave this window open; `Ctrl+C` stops it.
 
 **Step 1.** Open `ios/VoiceBridge.xcodeproj` in Xcode.
 
-**Step 2. Set your signing team.** Click the blue `VoiceBridge` project in the
-left sidebar → the `VoiceBridge` target → **Signing & Capabilities** → pick your
-Apple ID under **Team**. Without this the app cannot install on your phone.
+**Step 2. Set your signing details.** Apple requires the app be signed with your
+own developer identity before it can install on a phone. Copy the example file:
+
+```bash
+cp ios/Local.xcconfig.example ios/Local.xcconfig
+```
+
+Open `ios/Local.xcconfig` and set both values. Your Team ID is in Xcode under
+**Settings → Accounts → your Apple ID → Team**. The bundle identifier can be
+anything unique, like `com.yourname.voicebridge`. This file is gitignored, so
+your details never get committed.
 
 **Step 3.** Plug in your iPhone, pick it in the device menu at the top, press
 the ▶ Run button.
