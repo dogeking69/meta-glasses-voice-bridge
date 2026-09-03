@@ -96,7 +96,8 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
 Copy the output, open `listener/config.toml`, and paste it as the value of
-`shared_secret`. Keep the terminal window — you need the same value on the phone.
+`shared_secret`. You never have to type this into the phone — pairing in Part 2
+hands it over for you.
 
 **Step 4. Start the listener:**
 
@@ -104,8 +105,9 @@ Copy the output, open `listener/config.toml`, and paste it as the value of
 ./listener/run.sh
 ```
 
-It prints the address your phone should use, like `http://192.168.1.173:8765`.
-Leave this window open; `Ctrl+C` stops it.
+It prints every address your phone could use, and announces itself on the
+network so the app can find it without you typing any of them. Leave this
+window open; `Ctrl+C` stops it.
 
 ---
 
@@ -128,9 +130,23 @@ your details never get committed.
 **Step 3.** Plug in your iPhone, pick it in the device menu at the top, press
 the ▶ Run button.
 
-**Step 4.** The app opens its Settings screen on first launch. Enter the address
-the listener printed, and paste the same shared secret. Tap **Test connection**
-— it should say "Reached your Mac." The secret is stored in the iPhone Keychain.
+**Step 4. Pair the phone with the Mac.** On the Mac, in a second Terminal
+window (leave the listener running in the first):
+
+```bash
+./listener/pair.sh
+```
+
+It shows a six-digit PIN and holds it for two minutes. On the phone, open
+Settings, tap **Pair with your Mac**, pick your Mac from the list, and type the
+PIN. The address, the port and the shared secret all arrive together — there is
+nothing to copy across by hand. The secret is stored in the iPhone Keychain.
+
+Tap **Test connection**; it should say "Reached your Mac."
+
+If your Mac does not appear in the list, both devices are probably not on the
+same Wi-Fi, or the listener is not running. You can always fill the address and
+secret in by hand instead — the fields are right below the Pair button.
 
 **Step 5.** Put on the glasses, make sure they are connected to the phone over
 Bluetooth, then hold the big microphone button and speak. Let go when done.
@@ -461,6 +477,11 @@ shows elapsed listening time instead, which is what actually predicts the drain.
   enough protection for a public endpoint.
 - The shared secret lives in `config.toml` (gitignored) on the Mac and in the
   Keychain on the phone. It is never in source code.
+- `/pair` is the single request that cannot be signed, because the signing key
+  is what it hands over. It is fenced in instead: it answers only while a
+  two-minute window you opened at the Mac is running, only for a caller on a
+  private address, and only for five guesses at a six-digit PIN. A correct PIN
+  closes the window, so the secret goes out exactly once.
 - The app sets `NSAllowsArbitraryLoads` because the listener is plain HTTP on a
   private address, and iOS blocks that by default. `NSAllowsLocalNetworking`
   alone is not enough — it exempts only `.local` hostnames and link-local
@@ -498,6 +519,8 @@ shows elapsed listening time instead, which is what actually predicts the drain.
 | "No answer" on Test connection | Listener not running, or phone and Mac are on different Wi-Fi networks. |
 | Microphone row stays grey | Glasses are not connected over Bluetooth, or another app is holding the mic. |
 | "Address already in use" | The listener is already running in another Terminal window. |
+| No Macs in the pairing list | Phone and Mac are on different Wi-Fi networks, the listener is not running, or the phone refused the local network permission (Settings → Voice Bridge → Local Network). |
+| "No pairing window is open" | The two minutes ran out. Run `./listener/pair.sh` again. |
 
 ---
 
@@ -527,6 +550,9 @@ ios/VoiceBridge/
   ToggleListeningIntent.swift  Action Button / Siri / Shortcuts entry point
   Chime.swift            audible cues
   SettingsStore.swift    saved settings
+  Discovery.swift        finds Macs on the network over Bonjour
+  Pairing.swift          the one unsigned request: claiming a PIN
+  PairingView.swift      pick a Mac, type six digits, done
   Keychain.swift         secret storage
 
 listener/
@@ -539,8 +565,12 @@ listener/
   sessions.py            read-only browser for Claude Code transcripts
   photos.py              where glasses photos land, and the cap on the folder
   pending.py             actions parked waiting for you to say yes
+  pairing.py             the PIN window, and every address this Mac answers on
+  bonjour.py             announces the listener so the phone can find it
+  pair.py                opens a pairing window and shows the PIN
   config.example.toml    template for your config.toml
   run.sh                 starts the listener
+  pair.sh                connects a phone without typing the secret
 ```
 
 ---

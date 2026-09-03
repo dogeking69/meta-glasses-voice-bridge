@@ -11,6 +11,8 @@ final class SettingsStore: ObservableObject {
         static let port = "listener.port"
         static let secret = "listener.secret"
         static let wakePhrase = "listener.wakePhrase"
+        static let macName = "listener.macName"
+        static let otherHosts = "listener.otherHosts"
     }
 
     @Published var host: String {
@@ -25,6 +27,19 @@ final class SettingsStore: ObservableObject {
         didSet { Keychain.set(sharedSecret, for: Keys.secret) }
     }
 
+    /// The name of the paired Mac, purely so the Settings screen can say which
+    /// computer this is. Empty when the address was typed in by hand.
+    @Published var macName: String {
+        didSet { UserDefaults.standard.set(macName, forKey: Keys.macName) }
+    }
+
+    /// The other addresses pairing found for the same Mac — `.local`, LAN and
+    /// Tailscale — offered as one-tap alternatives when the current one stops
+    /// answering.
+    @Published var otherHosts: [String] {
+        didSet { UserDefaults.standard.set(otherHosts, forKey: Keys.otherHosts) }
+    }
+
     /// What you say to wake it up in hands-free mode.
     @Published var wakePhrase: String {
         didSet { UserDefaults.standard.set(wakePhrase, forKey: Keys.wakePhrase) }
@@ -35,6 +50,32 @@ final class SettingsStore: ObservableObject {
         port = UserDefaults.standard.string(forKey: Keys.port) ?? "8765"
         sharedSecret = Keychain.get(Keys.secret)
         wakePhrase = UserDefaults.standard.string(forKey: Keys.wakePhrase) ?? WakeWord.defaultPhrase
+        macName = UserDefaults.standard.string(forKey: Keys.macName) ?? ""
+        otherHosts = UserDefaults.standard.stringArray(forKey: Keys.otherHosts) ?? []
+    }
+
+    /// Take everything a successful pairing handed back.
+    ///
+    /// The Mac lists its addresses best first, so the first one becomes the
+    /// address in use and the rest are kept as alternatives.
+    func adopt(_ result: Pairing.Result) {
+        let addresses = (result.addresses ?? []).filter { !$0.isEmpty }
+        guard let best = addresses.first, let secret = result.sharedSecret else { return }
+
+        host = best
+        otherHosts = Array(addresses.dropFirst())
+        if let paired = result.port { port = String(paired) }
+        sharedSecret = secret
+        macName = result.name ?? ""
+    }
+
+    /// Switch to one of the other addresses, keeping the old one on the list.
+    func useHost(_ address: String) {
+        guard address != host else { return }
+        var rest = otherHosts.filter { $0 != address }
+        rest.append(host)
+        host = address
+        otherHosts = rest
     }
 
     /// Falls back to the default if the field is left empty.

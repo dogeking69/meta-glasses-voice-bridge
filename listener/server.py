@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import socket
 import sys
 import time
 import tomllib
@@ -21,8 +20,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import actions
+import bonjour
 import claude_client
 import mac_actions
+import pairing
 import photos
 import sessions
 from conversation import Conversation, Turn
@@ -62,18 +63,6 @@ CONVERSATION = Conversation(
 
 # Actions that are read back to you and only run once you say yes.
 NEEDS_CONFIRMATION = set(CONFIG.get("confirm", {}).get("require", ["claude_code"]))
-
-
-def lan_ip() -> str:
-    """Best guess at this Mac's address on the local network."""
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        probe.connect(("192.168.1.1", 80))
-        return probe.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        probe.close()
 
 
 def timestamp_is_fresh(timestamp: str) -> tuple[bool, str]:
@@ -194,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_POST(self) -> None:
-        if self.path not in ("/command", "/confirm", "/history/clear", "/look"):
+        if self.path not in ("/command", "/confirm", "/history/clear", "/look", "/pair"):
             self._respond(404, {"ok": False, "error": "Not found"})
             return
 
@@ -204,6 +193,13 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(400, {"ok": False, "error": "Bad Content-Length"})
             return
         body = self.rfile.read(length)
+
+        # /pair is the one request that cannot be signed: the signing key is
+        # what it hands over. It is gated instead by a window you open at the
+        # Mac, a PIN, five attempts, and a caller on your own network.
+        if self.path == "/pair":
+            self._handle_pair(body)
+            return
 
         if not self._authorised(body):
             return
@@ -300,6 +296,32 @@ class Handler(BaseHTTPRequestHandler):
         print("  confirmed", flush=True)
         self._execute(pending.action, pending.params, pending.speak,
                       time.monotonic(), pending.transcript)
+
+    # MARK: pairing
+
+    def _handle_pair(self, body: bytes) -> None:
+        peer = self.client_address[0]
+        try:
+            pin = str(json.loads(body).get("pin", "")).strip()
+        except json.JSONDecodeError:
+            self._respond(400, {"ok": False, "error": "Body must be JSON."})
+            return
+
+        try:
+            pairing.claim(pin, peer)
+        except pairing.PairingError as exc:
+            print(f"  pairing refused from {peer}: {exc}", flush=True)
+            self._respond(403, {"ok": False, "error": str(exc)})
+            return
+
+        print(f"  paired with {peer}", flush=True)
+        self._respond(200, {
+            "ok": True,
+            "name": pairing.computer_name(),
+            "port": CONFIG["server"].get("port", 8765),
+            "addresses": pairing.addresses(),
+            "shared_secret": CONFIG["auth"]["shared_secret"],
+        })
 
     # MARK: looking through the glasses
 
@@ -408,10 +430,15 @@ def main() -> None:
     except OSError as exc:
         sys.exit(f"Could not listen on {host}:{port} ({exc.strerror}).\nIs the listener already running in another window?")
 
+    name = pairing.computer_name()
+    advertising = bonjour.advertise(name, port) is not None
+
     print("Voice bridge listener")
     print(f"  listening on   {host}:{port}")
-    print(f"  phone should use  http://{lan_ip()}:{port}")
+    print(f"  reachable at   {', '.join(pairing.addresses())}")
+    print(f"  discoverable   {'yes, as ' + name if advertising else 'no (dns-sd would not start)'}")
     print(f"  claude cli     {CONFIG['claude']['binary']} (model: {CONFIG['claude'].get('model')})")
+    print("  to connect a phone, run ./pair.sh in another window")
     print("  press Ctrl+C to stop\n", flush=True)
 
     try:

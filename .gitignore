@@ -1,5 +1,6 @@
 # Secrets — never commit
 listener/config.toml
+listener/.pairing.json
 *.env
 
 # Python

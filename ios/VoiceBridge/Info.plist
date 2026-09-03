@@ -99,6 +99,16 @@
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Voice Bridge connects to your Meta glasses over Bluetooth.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Voice Bridge sends your command to the listener running on your Mac.</string>
+	<string>Voice Bridge finds your Mac on this network and sends it your command.</string>
+
+	<!--
+	  Required to browse for the listener. iOS 14 and later refuse to return
+	  any Bonjour result for a service type that is not listed here, and it
+	  does so silently — no error, the list of Macs simply stays empty.
+	-->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_voicebridge._tcp</string>
+	</array>
 </dict>
 </plist>
