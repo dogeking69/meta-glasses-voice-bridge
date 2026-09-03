@@ -43,10 +43,11 @@
 	<dict>
 		<key>AppLinkURLScheme</key>
 		<string>voicebridge://</string>
+		<!-- Real values live in Local.xcconfig, which is gitignored. -->
 		<key>MetaAppID</key>
-		<string>0</string>
+		<string>$(META_APP_ID)</string>
 		<key>ClientToken</key>
-		<string></string>
+		<string>$(META_CLIENT_TOKEN)</string>
 		<key>TeamID</key>
 		<string>$(DEVELOPMENT_TEAM)</string>
 	</dict>

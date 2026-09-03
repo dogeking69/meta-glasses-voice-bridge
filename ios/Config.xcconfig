@@ -7,4 +7,8 @@
 PRODUCT_BUNDLE_IDENTIFIER = com.example.voicebridge
 DEVELOPMENT_TEAM =
 
+// Meta Wearables credentials. Real values belong in Local.xcconfig, never here.
+META_APP_ID = 0
+META_CLIENT_TOKEN =
+
 #include? "Local.xcconfig"

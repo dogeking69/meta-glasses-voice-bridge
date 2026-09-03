@@ -6,3 +6,9 @@
 
 PRODUCT_BUNDLE_IDENTIFIER = com.yourname.voicebridge
 DEVELOPMENT_TEAM = YOURTEAMID
+
+// From https://wearables.developer.meta.com after you create a project.
+// Only needed for glasses registration; the microphone works without them.
+// Leave as-is to build without Meta registration.
+META_APP_ID = 0
+META_CLIENT_TOKEN =

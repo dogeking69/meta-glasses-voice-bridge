@@ -155,10 +155,20 @@ Meta credentials:
    need Meta AI app v247 or newer and glasses firmware v20 or newer.
 2. Register at the [Wearables Developer Center](https://wearables.developer.meta.com)
    and create a project. You get a **Meta App ID** and a **Client Token**.
-3. Open `ios/VoiceBridge/Info.plist` and fill in the `MWDAT` block: your App ID in
-   `MetaAppID`, your token in `ClientToken`. `TeamID` fills itself in from your
-   signing team.
-4. Rebuild. A **Connect glasses** button appears; tapping it hands off to the
+3. Put them in `ios/Local.xcconfig`, **not** in `Info.plist`:
+
+   ```
+   META_APP_ID = your-app-id
+   META_CLIENT_TOKEN = your-client-token
+   ```
+
+   `Info.plist` reads them as build variables, so the committed file stays free
+   of credentials and `Local.xcconfig` is gitignored. A client token is not as
+   sensitive as an app secret, but it still identifies your app and does not
+   belong in a public repository.
+4. In the Wearables Developer Center, register the bundle identifier you build
+   with and the `voicebridge://` URL scheme, or registration will be rejected.
+5. Rebuild. A **Connect glasses** button appears; tapping it hands off to the
    Meta AI app for approval and returns you here.
 
 Until step 3 is done the Glasses row reads "Meta AI app unavailable", because
