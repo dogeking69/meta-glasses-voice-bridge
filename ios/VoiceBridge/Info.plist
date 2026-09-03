@@ -81,11 +81,14 @@
 	-->
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<!--
+		  NSAllowsArbitraryLoads MUST be the only key here. Apple ignores it
+		  entirely if NSAllowsArbitraryLoadsInWebContent,
+		  NSAllowsArbitraryLoadsForMedia or NSAllowsLocalNetworking is also
+		  present, so adding those "narrower" keys silently disables it and
+		  every plain-HTTP request fails.
+		-->
 		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsArbitraryLoadsInWebContent</key>
-		<false/>
-		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 

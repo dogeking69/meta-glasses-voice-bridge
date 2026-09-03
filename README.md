@@ -322,10 +322,17 @@ shows elapsed listening time instead, which is what actually predicts the drain.
 - The app sets `NSAllowsArbitraryLoads` because the listener is plain HTTP on a
   private address, and iOS blocks that by default. `NSAllowsLocalNetworking`
   alone is not enough — it exempts only `.local` hostnames and link-local
-  addresses, not `192.168.x.x` or a Tailscale `100.x` address. Web content keeps
-  its ATS protection. The app only ever talks to the single host you configure,
-  every request is HMAC-signed, and over Tailscale the traffic sits inside a
-  WireGuard tunnel, so it is encrypted on the wire despite being HTTP.
+  addresses, not `192.168.x.x` or a Tailscale `100.x` address. The app only ever
+  talks to the single host you configure, every request is HMAC-signed, and over
+  Tailscale the traffic sits inside a WireGuard tunnel, so it is encrypted on the
+  wire despite being HTTP.
+
+  **`NSAllowsArbitraryLoads` must be the only key in that dictionary.** Apple
+  ignores it completely if `NSAllowsArbitraryLoadsInWebContent`,
+  `NSAllowsArbitraryLoadsForMedia` or `NSAllowsLocalNetworking` is also present.
+  Adding one of those narrower-looking keys silently disables the exemption and
+  every request fails with "the App Transport Security policy requires the use of
+  a secure connection" — with nothing in the build output to hint at why.
 - Speech-to-text runs on the iPhone, so your audio is not uploaded anywhere.
 - Voice-triggered coding work is limited to folders you list in `config.toml`. A
   misheard project name is refused, not guessed at. Inside those folders Claude
