@@ -29,7 +29,7 @@ struct VoiceBridgeApp: App {
                 .onOpenURL { url in
                     // Meta AI sends the user back here after they approve the app.
                     #if canImport(MWDATCore)
-                    _ = Wearables.shared.handleUrl(url)
+                    Task { _ = try? await Wearables.shared.handleUrl(url) }
                     #endif
                 }
         }

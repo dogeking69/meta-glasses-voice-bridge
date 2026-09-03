@@ -40,9 +40,8 @@ final class GlassesManager: ObservableObject {
         watchers.append(Task { [weak self] in
             for await state in Wearables.shared.registrationStateStream() {
                 guard let self else { return }
-                self.registrationText = String(describing: state)
-                self.isRegistered = self.registrationText.lowercased().contains("registered")
-                    && !self.registrationText.lowercased().contains("not")
+                self.registrationText = Self.describe(state)
+                self.isRegistered = (state == .registered)
                 if self.isRegistered { self.openSession() }
             }
         })
@@ -59,13 +58,15 @@ final class GlassesManager: ObservableObject {
 
     func register() {
         #if canImport(MWDATCore)
-        do {
-            // Hands off to the Meta AI app; the user approves there and is sent
-            // back to us through our URL scheme.
-            try Wearables.shared.startRegistration()
-            lastError = nil
-        } catch {
-            lastError = "Registration failed: \(error.localizedDescription)"
+        Task {
+            do {
+                // Hands off to the Meta AI app; the user approves there and is
+                // sent back to us through our URL scheme.
+                try await Wearables.shared.startRegistration()
+                lastError = nil
+            } catch {
+                lastError = "Registration failed: \(error)"
+            }
         }
         #else
         lastError = "Add the MWDATCore package in Xcode first. See README."
@@ -75,24 +76,35 @@ final class GlassesManager: ObservableObject {
     #if canImport(MWDATCore)
     private func openSession() {
         guard session == nil else { return }
-        let newSession = Wearables.shared.createSession(
-            deviceSelector: AutoDeviceSelector(wearables: Wearables.shared)
-        )
-        session = newSession
 
+        let newSession: DeviceSession
         do {
+            newSession = try Wearables.shared.createSession(
+                deviceSelector: AutoDeviceSelector(wearables: Wearables.shared)
+            )
             try newSession.start()
         } catch {
-            lastError = "Could not start glasses session: \(error.localizedDescription)"
-            session = nil
+            lastError = "Could not start glasses session: \(error)"
             return
         }
+        session = newSession
 
         watchers.append(Task { [weak self] in
             for await state in newSession.stateStream() {
                 self?.sessionActive = (state == .started)
             }
         })
+    }
+
+    /// RegistrationState has no user-facing text of its own.
+    private static func describe(_ state: RegistrationState) -> String {
+        switch state {
+        case .unavailable: return "Meta AI app unavailable"
+        case .available: return "Ready to connect"
+        case .registering: return "Connecting…"
+        case .registered: return "Connected"
+        @unknown default: return "Unknown"
+        }
     }
     #endif
 }

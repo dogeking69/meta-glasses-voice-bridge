@@ -141,23 +141,36 @@ not connected over Bluetooth.
 
 ---
 
-## Part 3 — Add the Meta toolkit (optional, do it after the above works)
+## Part 3 — Connect the glasses to the Meta toolkit (optional)
 
-The app is written so it compiles and runs without the Meta package. Adding it
-turns on glasses registration and session status.
+**The glasses microphone works without any of this.** Audio arrives as ordinary
+Bluetooth hands-free audio, so voice commands work with the toolkit unconfigured.
+This section only adds registration and session status to the Glasses row.
+
+`MWDATCore` 0.9.0 is already a dependency of the Xcode project — Swift Package
+Manager fetches it on first build, nothing to add. What is missing is your own
+Meta credentials:
 
 1. **Enable Developer Mode on the glasses**, in the Meta AI app's settings. You
    need Meta AI app v247 or newer and glasses firmware v20 or newer.
 2. Register at the [Wearables Developer Center](https://wearables.developer.meta.com)
    and create a project. You get a **Meta App ID** and a **Client Token**.
-3. In Xcode: **File → Add Package Dependencies**, paste
-   `https://github.com/facebook/meta-wearables-dat-ios`, and add the
-   **MWDATCore** product to the VoiceBridge target.
-4. Open `ios/VoiceBridge/Info.plist` and fill in the `MWDAT` block: put your App
-   ID in `MetaAppID` and your token in `ClientToken`. `TeamID` fills itself in
-   from your signing team.
-5. Rebuild. A **Connect glasses** button appears; tapping it hands off to the
+3. Open `ios/VoiceBridge/Info.plist` and fill in the `MWDAT` block: your App ID in
+   `MetaAppID`, your token in `ClientToken`. `TeamID` fills itself in from your
+   signing team.
+4. Rebuild. A **Connect glasses** button appears; tapping it hands off to the
    Meta AI app for approval and returns you here.
+
+Until step 3 is done the Glasses row reads "Meta AI app unavailable", because
+`Wearables.configure()` cannot attest an app with a placeholder App ID.
+
+**A note on SDK versions.** The dependency is pinned to exactly 0.9.0 rather
+than a range. This is a developer preview and it makes breaking changes between
+minor versions — `DeviceState.batteryLevel` existed in 0.2 and was gone by 0.8 —
+so an open range would break the build without warning. Also be careful with the
+published API reference: at 0.9.0 `startRegistration()` and `handleUrl(_:)` are
+`async throws` and `createSession(deviceSelector:)` throws, which the docs pages
+do not show. The `.swiftinterface` inside the xcframework is the real contract.
 
 **Live SDK docs.** Meta runs a documentation server you can connect to Claude
 Code so DAT questions get answered from current docs instead of guesswork. Run
