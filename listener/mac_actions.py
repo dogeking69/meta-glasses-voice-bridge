@@ -9,8 +9,10 @@ from __future__ import annotations
 import datetime
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 
 
 class MacError(RuntimeError):
@@ -61,6 +63,9 @@ SYSTEM_COMMANDS: dict[str, tuple[str, str]] = {
 def system_control(params: dict, speak: str) -> str:
     command = str(params.get("command", "")).strip().lower()
 
+    if command == "set_volume":
+        return _set_volume(params)
+
     if command == "screenshot":
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         target = Path.home() / "Desktop" / f"voicebridge-{stamp}.png"
@@ -69,12 +74,24 @@ def system_control(params: dict, speak: str) -> str:
 
     entry = SYSTEM_COMMANDS.get(command)
     if entry is None:
-        options = ", ".join(sorted(list(SYSTEM_COMMANDS) + ["screenshot"]))
+        options = ", ".join(sorted(list(SYSTEM_COMMANDS) + ["screenshot", "set_volume"]))
         raise MacError(f"I cannot do that. I can do: {options}.")
 
     script, default_reply = entry
     osascript(script)
     return speak or default_reply
+
+
+def _set_volume(params: dict) -> str:
+    """Volume as a number rather than a nudge, for "set the volume to thirty"."""
+    try:
+        level = int(float(params.get("level", -1)))
+    except (TypeError, ValueError):
+        raise MacError("I did not catch what to set the volume to.") from None
+    if not 0 <= level <= 100:
+        raise MacError("Volume has to be between zero and one hundred.")
+    osascript(f"set volume output volume {level}")
+    return f"Volume at {level} percent."
 
 
 # MARK: - notes and reminders
@@ -139,6 +156,18 @@ def get_status(params: dict, config: dict) -> str:
     if what == "uptime":
         out = subprocess.run(["uptime"], capture_output=True, text=True, timeout=10).stdout
         return "Your Mac says: " + out.split("up ", 1)[-1].split(",")[0].strip() + "."
+    if what == "volume":
+        level = osascript("output volume of (get volume settings)")
+        muted = osascript("output muted of (get volume settings)")
+        if muted == "true":
+            return "Your Mac is muted."
+        return f"Volume is at {level} percent."
+    if what == "mail":
+        return _unread_mail()
+    if what == "reminders":
+        return _open_reminders()
+    if what == "ip":
+        return _local_ip()
     if what == "wifi":
         name = subprocess.run(
             ["networksetup", "-getairportnetwork", "en0"],
@@ -191,6 +220,42 @@ def _next_event() -> str:
         return "Nothing on your calendar in the next two days."
     title, when = sorted(rows)[0].split("|", 1)
     return f"{title.strip()}, {when.strip()}."
+
+
+def _unread_mail() -> str:
+    try:
+        count = osascript('tell application "Mail" to get unread count of inbox', timeout=30)
+    except MacError:
+        return "Mail is not running."
+    number = int(count) if count.isdigit() else 0
+    if number == 0:
+        return "No unread mail."
+    return f"{number} unread message" + ("s." if number != 1 else ".")
+
+
+def _open_reminders() -> str:
+    """The first few reminders still outstanding, oldest list first."""
+    script = (
+        'tell application "Reminders" to get name of every reminder '
+        "whose completed is false"
+    )
+    raw = osascript(script, timeout=60)
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    if not names:
+        return "Nothing on your reminders."
+    listed = ", ".join(names[:4])
+    more = f", and {len(names) - 4} more" if len(names) > 4 else ""
+    return f"You have {listed}{more}."
+
+
+def _local_ip() -> str:
+    for interface in ("en0", "en1"):
+        out = subprocess.run(
+            ["ipconfig", "getifaddr", interface], capture_output=True, text=True, timeout=10
+        ).stdout.strip()
+        if out:
+            return f"Your Mac is at {out}."
+    return "Your Mac is not on a network."
 
 
 def _recent_notes(config: dict) -> str:
@@ -443,3 +508,147 @@ def empty_trash() -> str:
     """Destructive, so it is confirmed out loud before it runs."""
     osascript('tell application "Finder" to empty trash')
     return "Trash emptied."
+
+
+# MARK: - weather
+
+_WEATHER_FORMAT = "%l:+%C,+%t,+feels+like+%f"
+
+
+def _speakable(reading: str) -> str:
+    """wttr.in writes temperatures as "+11°C", which text-to-speech reads badly."""
+    return (
+        reading.replace("°C", " degrees")
+        .replace("°F", " degrees")
+        .replace("+", "")
+        .replace("  ", " ")
+        .strip()
+    )
+
+
+def weather(params: dict) -> str:
+    """Current conditions from wttr.in.
+
+    This is the one action that leaves your network: the place name you ask
+    about is sent to wttr.in. Nothing else about you goes with it.
+    """
+    location = str(params.get("location", "")).strip()
+    url = f"https://wttr.in/{quote(location)}?format={_WEATHER_FORMAT}"
+    request = urllib.request.Request(url, headers={"User-Agent": "curl/8"})
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            reading = response.read().decode("utf-8", "replace").strip()
+    except (urllib.error.URLError, OSError, TimeoutError):
+        raise MacError("I could not reach the weather service.") from None
+
+    if not reading or "Unknown location" in reading or len(reading) > 200:
+        raise MacError(f"I could not find the weather for {location or 'here'}.")
+    return _speakable(reading) + "."
+
+
+# MARK: - windows
+
+# Fractions of the screen, as (left, top, width, height).
+WINDOW_POSITIONS: dict[str, tuple[float, float, float, float]] = {
+    "left": (0.0, 0.0, 0.5, 1.0),
+    "right": (0.5, 0.0, 0.5, 1.0),
+    "top": (0.0, 0.0, 1.0, 0.5),
+    "bottom": (0.0, 0.5, 1.0, 0.5),
+    "full": (0.0, 0.0, 1.0, 1.0),
+    "center": (0.15, 0.1, 0.7, 0.8),
+}
+
+# The menu bar sits above every window, so the usable area starts below it.
+_MENU_BAR_HEIGHT = 25
+
+
+def window_control(params: dict) -> str:
+    """Move the frontmost window around the screen. No extra app needed —
+    System Events can set a window's position and size directly."""
+    position = str(params.get("position", "")).strip().lower()
+    fractions = WINDOW_POSITIONS.get(position)
+    if fractions is None:
+        raise MacError("I can put a window " + ", ".join(WINDOW_POSITIONS) + ".")
+
+    bounds = osascript('tell application "Finder" to get bounds of window of desktop')
+    try:
+        _, _, screen_width, screen_height = [int(part) for part in bounds.split(", ")]
+    except ValueError:
+        raise MacError("I could not work out the size of your screen.") from None
+
+    usable_height = screen_height - _MENU_BAR_HEIGHT
+    left_fraction, top_fraction, width_fraction, height_fraction = fractions
+    x = int(screen_width * left_fraction)
+    y = int(usable_height * top_fraction) + _MENU_BAR_HEIGHT
+    width = int(screen_width * width_fraction)
+    height = int(usable_height * height_fraction)
+
+    osascript(
+        'tell application "System Events"\n'
+        "  set frontApp to first application process whose frontmost is true\n"
+        "  tell frontApp\n"
+        "    if (count of windows) is 0 then error \"no window\"\n"
+        f"    set position of front window to {{{x}, {y}}}\n"
+        f"    set size of front window to {{{width}, {height}}}\n"
+        "  end tell\n"
+        "end tell"
+    )
+    return f"Moved it {position}." if position not in ("full",) else "Filled the screen."
+
+
+# MARK: - appearance
+
+def appearance(params: dict) -> str:
+    """Dark mode on, off, or flipped."""
+    mode = str(params.get("mode", "toggle")).strip().lower()
+    values = {"dark": "true", "light": "false", "toggle": "not dark mode"}
+    value = values.get(mode)
+    if value is None:
+        raise MacError("I can turn dark mode on, off, or flip it.")
+
+    osascript(
+        "tell application \"System Events\" to tell appearance preferences "
+        f"to set dark mode to {value}"
+    )
+    now_dark = osascript(
+        'tell application "System Events" to tell appearance preferences to get dark mode'
+    )
+    return "Dark mode on." if now_dark == "true" else "Dark mode off."
+
+
+# MARK: - keep awake
+
+# The running `caffeinate` process, if any. One at a time is plenty.
+_awake_process: subprocess.Popen | None = None
+
+
+def keep_awake(params: dict) -> str:
+    """Stops the Mac sleeping for a while — useful when a long job is running
+    and you have walked away from the desk."""
+    global _awake_process
+
+    minutes_raw = params.get("minutes", 0)
+    stopping = str(params.get("mode", "")).strip().lower() == "stop"
+
+    if _awake_process is not None and _awake_process.poll() is None:
+        _awake_process.terminate()
+        _awake_process = None
+        if stopping:
+            return "Your Mac can sleep again."
+    elif stopping:
+        return "Your Mac was not being kept awake."
+
+    try:
+        minutes = int(float(minutes_raw))
+    except (TypeError, ValueError):
+        raise MacError("I did not catch how long to keep your Mac awake.") from None
+    if not 1 <= minutes <= 12 * 60:
+        raise MacError("I can keep your Mac awake for between a minute and twelve hours.")
+
+    _awake_process = subprocess.Popen(["caffeinate", "-dis", "-t", str(minutes * 60)])
+    hours = minutes // 60
+    if hours and minutes % 60 == 0:
+        spoken = f"{hours} hour" + ("s" if hours != 1 else "")
+    else:
+        spoken = f"{minutes} minutes"
+    return f"Keeping your Mac awake for {spoken}."

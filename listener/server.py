@@ -23,12 +23,16 @@ from pathlib import Path
 import actions
 import claude_client
 import mac_actions
+import photos
 import sessions
 from conversation import Conversation, Turn
 from pending import Pending, PendingStore
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.toml"
 MAX_BODY_BYTES = 64 * 1024
+# A photo from the glasses arrives base64-encoded inside the body, so /look
+# needs far more room than a sentence of speech does.
+MAX_PHOTO_BODY_BYTES = 12 * 1024 * 1024
 
 
 def load_config() -> dict:
@@ -138,6 +142,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._handle_sessions()
             return
+        if self.path.startswith("/capabilities"):
+            if not self._authorised(b""):
+                return
+            self._respond(200, {
+                "ok": True,
+                "capabilities": actions.catalog(CONFIG, NEEDS_CONFIRMATION, _shortcut_names()),
+            })
+            return
         if self.path.startswith("/history"):
             # Signed like everything else: history is a record of your life.
             if not self._authorised(b""):
@@ -182,12 +194,13 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_POST(self) -> None:
-        if self.path not in ("/command", "/confirm", "/history/clear"):
+        if self.path not in ("/command", "/confirm", "/history/clear", "/look"):
             self._respond(404, {"ok": False, "error": "Not found"})
             return
 
+        limit = MAX_PHOTO_BODY_BYTES if self.path == "/look" else MAX_BODY_BYTES
         length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0 or length > MAX_BODY_BYTES:
+        if length <= 0 or length > limit:
             self._respond(400, {"ok": False, "error": "Bad Content-Length"})
             return
         body = self.rfile.read(length)
@@ -211,6 +224,10 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_confirm(payload)
             return
 
+        if self.path == "/look":
+            self._handle_look(payload)
+            return
+
         transcript = str(payload.get("transcript", "")).strip()
         if not transcript:
             self._respond(400, {"ok": False, "error": "Empty transcript."})
@@ -231,6 +248,10 @@ class Handler(BaseHTTPRequestHandler):
         action = command["action"]
         params = command.get("params") or {}
         print(f"  action: {action} {params}", flush=True)
+
+        if action == "look":
+            self._request_photo(params, transcript)
+            return
 
         if action in NEEDS_CONFIRMATION:
             self._offer(action, params, command.get("speak") or "", transcript)
@@ -279,6 +300,53 @@ class Handler(BaseHTTPRequestHandler):
         print("  confirmed", flush=True)
         self._execute(pending.action, pending.params, pending.speak,
                       time.monotonic(), pending.transcript)
+
+    # MARK: looking through the glasses
+
+    def _request_photo(self, params: dict, transcript: str) -> None:
+        """Nothing runs here. The phone is asked to take a photo and come back
+        to /look with it, because the camera is on the glasses, not the Mac."""
+        question = str(params.get("question", "")).strip() or transcript
+        print(f'  asking for a photo: "{question}"', flush=True)
+        self._respond(200, {
+            "ok": True,
+            "action": "look",
+            "capture": True,
+            "question": question,
+            "speak": "Let me take a look.",
+        })
+
+    def _handle_look(self, payload: dict) -> None:
+        started = time.monotonic()
+        question = str(payload.get("question", "")).strip()
+
+        try:
+            path = photos.save(str(payload.get("image_b64", "")), CONFIG)
+        except photos.PhotoError as exc:
+            print(f"  photo error: {exc}", flush=True)
+            self._respond(200, {"ok": False, "error": str(exc), "speak": str(exc)})
+            return
+
+        size_kb = path.stat().st_size // 1024
+        print(f'  photo: {path.name} ({size_kb} KB), question: "{question}"', flush=True)
+
+        claude_config = claude_client.ClaudeConfig(
+            binary=CONFIG["claude"]["binary"],
+            model=CONFIG["claude"].get("model", "sonnet"),
+            timeout_seconds=CONFIG["claude"].get("timeout_seconds", 60),
+        )
+        try:
+            answer = claude_client.describe_image(path, question, claude_config)
+        except claude_client.ClaudeError as exc:
+            print(f"  claude error: {exc}", flush=True)
+            CONVERSATION.add(Turn(question, "look", {}, "", False, str(exc)))
+            self._respond(502, {"ok": False, "error": str(exc), "speak": str(exc)})
+            return
+
+        elapsed = time.monotonic() - started
+        print(f'  said: "{answer}"  ({elapsed:.1f}s)', flush=True)
+        CONVERSATION.add(Turn(question, "look", {"photo": path.name}, answer, True, ""))
+        self._respond(200, {"ok": True, "action": "look", "speak": answer})
 
     # MARK: helpers
 

@@ -15,6 +15,9 @@ struct Message: Identifiable, Equatable {
     var text: String
     var action: String?
     var ok: Bool = true
+    /// The photo taken by the glasses, when this turn was about looking at
+    /// something. Held in memory only — history from the Mac has no image.
+    var photo: Data?
     var date: Date = Date()
 
     static func from(_ turn: ListenerClient.Turn) -> [Message] {
@@ -46,6 +49,11 @@ enum ActionStyle {
         case "open_url": return "safari"
         case "clipboard": return "doc.on.clipboard"
         case "send_message": return "message"
+        case "look": return "eye"
+        case "weather": return "cloud.sun"
+        case "window_control": return "macwindow"
+        case "appearance": return "circle.lefthalf.filled"
+        case "keep_awake": return "cup.and.saucer"
         case "cancelled": return "xmark.circle"
         default: return "sparkles"
         }

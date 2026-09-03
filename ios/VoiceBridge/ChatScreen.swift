@@ -16,6 +16,7 @@ struct ChatScreen: View {
     @State private var macReachable: Bool?
     @State private var confirmingClear = false
     @State private var showingSessions = false
+    @State private var showingCapabilities = false
 
     var body: some View {
         NavigationStack {
@@ -34,6 +35,9 @@ struct ChatScreen: View {
             .sheet(isPresented: $showingSessions) {
                 SessionsView().environmentObject(settings)
             }
+            .sheet(isPresented: $showingCapabilities) {
+                CapabilitiesView { model.send($0) }.environmentObject(settings)
+            }
             .confirmationDialog("Clear the conversation?",
                                 isPresented: $confirmingClear, titleVisibility: .visible) {
                 Button("Clear", role: .destructive) { Task { await model.clearHistory() } }
@@ -42,15 +46,16 @@ struct ChatScreen: View {
                 Text("This also clears the context used to understand follow-up questions.")
             }
             .task {
-                model.attach(settings: settings)
+                model.attach(settings: settings, glasses: glasses)
                 permissionsGranted = await model.requestPermissions()
                 glasses.start()
                 if !settings.isConfigured { showingSettings = true }
                 await model.loadHistory()
+                await model.loadSuggestions()
                 await refreshMac()
                 consumePendingIntent()
             }
-            .onChange(of: scenePhase) { _ in consumePendingIntent() }
+            .onChange(of: scenePhase) { consumePendingIntent() }
         }
     }
 
@@ -66,6 +71,9 @@ struct ChatScreen: View {
                     pill(macLabel, systemImage: "desktopcomputer", good: macReachable == true)
                     if model.session.isRunning {
                         pill("listening", systemImage: "waveform", good: true)
+                    }
+                    if model.isLooking {
+                        pill("looking", systemImage: "eye", good: true)
                     }
                     Spacer()
                     Image(systemName: showingStatus ? "chevron.up" : "chevron.down")
@@ -153,8 +161,8 @@ struct ChatScreen: View {
                 .padding(.vertical, 16)
             }
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: model.messages.count) { _ in scrollDown(proxy) }
-            .onChange(of: model.isThinking) { _ in scrollDown(proxy) }
+            .onChange(of: model.messages.count) { scrollDown(proxy) }
+            .onChange(of: model.isThinking) { scrollDown(proxy) }
         }
     }
 
@@ -186,6 +194,10 @@ struct ChatScreen: View {
                 .buttonStyle(.plain)
                 .disabled(!canSend)
             }
+
+            Button("See everything it can do") { showingCapabilities = true }
+                .font(.footnote)
+                .padding(.top, 2)
         }
     }
 
@@ -205,6 +217,10 @@ struct ChatScreen: View {
                                 in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .onSubmit(model.sendDraft)
                     .disabled(!canSend)
+
+                if model.canTakePhoto {
+                    cameraButton
+                }
 
                 if model.draft.isEmpty {
                     micButton
@@ -237,6 +253,20 @@ struct ChatScreen: View {
                     .onEnded { _ in Task { await model.finishRecording() } }
             )
             .accessibilityLabel("Hold to talk")
+    }
+
+    /// Takes a photo through the glasses and asks what is in it. Anything
+    /// typed in the composer becomes the question.
+    private var cameraButton: some View {
+        Button {
+            model.lookNow()
+        } label: {
+            Image(systemName: model.isLooking ? "camera.circle.fill" : "camera.circle")
+                .font(.system(size: 32))
+                .symbolEffect(.pulse, isActive: model.isLooking)
+        }
+        .disabled(!canSend || model.isLooking)
+        .accessibilityLabel("Look through the glasses")
     }
 
     private var confirmationButtons: some View {
@@ -291,6 +321,9 @@ struct ChatScreen: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
+                Button("What I can do", systemImage: "sparkles.rectangle.stack") {
+                    showingCapabilities = true
+                }
                 Button("Claude Code sessions", systemImage: "chevron.left.forwardslash.chevron.right") {
                     showingSessions = true
                 }

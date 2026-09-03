@@ -65,3 +65,10 @@ timeout_seconds = 600
 # Where spoken notes are appended.
 [actions.take_note]
 file = "~/Documents/voice-notes.md"
+
+# Photos taken by the glasses when you ask what you are looking at. They are
+# written to disk because that is how Claude reads them, and the folder is
+# capped so it cannot fill your drive.
+[actions.look]
+folder = "~/Pictures/VoiceBridge"
+keep = 50

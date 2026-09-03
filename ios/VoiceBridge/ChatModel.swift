@@ -8,6 +8,8 @@ final class ChatModel: ObservableObject {
     @Published private(set) var messages: [Message] = []
     @Published private(set) var isThinking = false
     @Published private(set) var pendingId: String?
+    /// True from the moment the shutter is asked for until the answer is back.
+    @Published private(set) var isLooking = false
     @Published var draft = ""
     @Published var banner: String?
 
@@ -16,28 +18,47 @@ final class ChatModel: ObservableObject {
     private let speaker = Speaker()
 
     private var settings: SettingsStore?
+    private var glasses: GlassesManager?
     private var notificationTicker: Timer?
 
     var hasPendingConfirmation: Bool { pendingId != nil }
     var isRecording: Bool { capture.isRecording }
 
-    /// Shown on an empty conversation. Chosen to demonstrate the range.
-    let suggestions = [
+    /// Shown on an empty conversation. Replaced by real examples from the Mac
+    /// once the catalog loads, so they name your own apps and projects.
+    @Published private(set) var suggestions = [
         "What's on my calendar?",
         "Open Spotify",
         "Set a timer for 10 minutes",
         "Make a note that…",
-        "Turn the volume down"
+        "What am I looking at?"
     ]
 
-    func attach(settings: SettingsStore) {
+    func attach(settings: SettingsStore, glasses: GlassesManager) {
         self.settings = settings
+        self.glasses = glasses
         session.onUtterance = { [weak self] text, isConfirmationReply in
             Task { await self?.handleSpoken(text, isConfirmationReply: isConfirmationReply) }
         }
     }
 
     // MARK: - Loading
+
+    /// Pull a few example phrases out of the Mac's own capability catalog.
+    /// One per category keeps the empty state short but broad.
+    func loadSuggestions() async {
+        guard let client = makeClient(),
+              let catalog = try? await client.capabilities() else { return }
+
+        var seenCategories: Set<String> = []
+        var picked: [String] = []
+        for capability in catalog {
+            guard let example = capability.examples.first,
+                  seenCategories.insert(capability.category).inserted else { continue }
+            picked.append(example)
+        }
+        if !picked.isEmpty { suggestions = Array(picked.prefix(5)) }
+    }
 
     func loadHistory() async {
         guard let client = makeClient() else { return }
@@ -126,6 +147,12 @@ final class ChatModel: ObservableObject {
             resumeListeningAfterSpeaking(awaitingConfirmation: awaitingConfirmation)
             speaker.say(spoken)
             Haptics.success(awaitingConfirmation ? .warning : .success)
+
+            // The camera is on the wearer's face, not on the Mac, so the Mac
+            // answers "take a photo and come back to me".
+            if reply.capture == true {
+                await look(question: reply.question ?? "What am I looking at?")
+            }
         } catch {
             pendingId = nil
             append(Message(id: UUID().uuidString, role: .assistant,
@@ -139,6 +166,51 @@ final class ChatModel: ObservableObject {
     private func append(_ message: Message) {
         messages.append(message)
     }
+
+    // MARK: - Looking through the glasses
+
+    /// Tapping the camera button. Anything typed becomes the question.
+    func lookNow() {
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft = ""
+        Task { await look(question: typed.isEmpty ? "What am I looking at?" : typed) }
+    }
+
+    /// Take a photo through the glasses and ask the Mac what is in it.
+    func look(question: String) async {
+        guard let glasses, let client = makeClient() else {
+            banner = "Set your Mac's address in Settings."
+            return
+        }
+
+        isLooking = true
+        defer { isLooking = false }
+        Haptics.tap()
+
+        do {
+            let photo = try await glasses.capturePhoto()
+            append(Message(id: UUID().uuidString, role: .user, text: question, photo: photo))
+
+            let reply = try await client.look(question: question, photo: photo)
+            let spoken = reply.speak ?? reply.error ?? "I could not tell."
+            append(Message(id: UUID().uuidString, role: .assistant, text: spoken,
+                           action: "look", ok: reply.ok))
+            banner = nil
+            resumeListeningAfterSpeaking(awaitingConfirmation: false)
+            speaker.say(spoken)
+            Haptics.success(reply.ok ? .success : .error)
+        } catch {
+            let reason = error.localizedDescription
+            append(Message(id: UUID().uuidString, role: .assistant, text: reason,
+                           action: "look", ok: false))
+            resumeListeningAfterSpeaking(awaitingConfirmation: false)
+            speaker.say(reason)
+            Haptics.success(.error)
+        }
+    }
+
+    /// Whether the camera button should be offered at all.
+    var canTakePhoto: Bool { glasses?.canTakePhoto ?? false }
 
     // MARK: - Microphone
 

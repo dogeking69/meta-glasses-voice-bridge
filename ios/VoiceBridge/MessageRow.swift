@@ -17,17 +17,27 @@ struct MessageRow: View {
     private var userBubble: some View {
         HStack {
             Spacer(minLength: 48)
-            Text(message.text)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .foregroundStyle(.white)
-                .contextMenu {
-                    Button("Say again", systemImage: "arrow.clockwise") { onRepeat(message) }
-                    Button("Copy", systemImage: "doc.on.doc") {
-                        UIPasteboard.general.string = message.text
-                    }
+            VStack(alignment: .trailing, spacing: 6) {
+                if let photo = message.photo, let image = UIImage(data: photo) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: 220, maxHeight: 165)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
+                Text(message.text)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.accentColor,
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .foregroundStyle(.white)
+            }
+            .contextMenu {
+                Button("Say again", systemImage: "arrow.clockwise") { onRepeat(message) }
+                Button("Copy", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = message.text
+                }
+            }
         }
     }
 

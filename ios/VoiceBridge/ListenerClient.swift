@@ -20,6 +20,11 @@ struct ListenerClient {
         /// back for you to approve.
         let needsConfirmation: Bool?
         let pendingId: String?
+        /// True when the Mac wants a photo before it can answer. The camera is
+        /// on your face, not on the Mac, so it has to ask.
+        let capture: Bool?
+        /// What to answer about the photo once it has been taken.
+        let question: String?
     }
 
     /// What you said in reply to a spoken confirmation.
@@ -39,14 +44,27 @@ struct ListenerClient {
         return try await post(path: "confirm", fields: fields)
     }
 
-    private func post(path: String, fields: [String: String]) async throws -> Reply {
+    /// Send a photo from the glasses along with the question to answer about it.
+    ///
+    /// The image goes as base64 inside the signed JSON body, so it is covered
+    /// by the same HMAC as everything else rather than riding in unsigned.
+    func look(question: String, photo: Data) async throws -> Reply {
+        try await post(
+            path: "look",
+            fields: ["question": question, "image_b64": photo.base64EncodedString()],
+            timeout: 180
+        )
+    }
+
+    private func post(path: String, fields: [String: String],
+                      timeout: TimeInterval = 90) async throws -> Reply {
         let body = try JSONEncoder().encode(fields)
         let timestamp = String(Int(Date().timeIntervalSince1970))
 
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.httpBody = body
-        request.timeoutInterval = 90
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(timestamp, forHTTPHeaderField: "X-Timestamp")
         request.setValue(signature(timestamp: timestamp, body: body), forHTTPHeaderField: "X-Signature")
@@ -149,6 +167,29 @@ struct ListenerClient {
             throw ListenerError.badResponse(status: (response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         return decoded
+    }
+
+    // MARK: - Capabilities
+
+    /// One thing the assistant can do, as the Mac describes it.
+    struct Capability: Decodable, Identifiable {
+        let action: String
+        let category: String
+        let summary: String
+        let examples: [String]
+        /// True when this is read back to you before it runs.
+        let confirm: Bool
+
+        var id: String { action }
+    }
+
+    private struct CapabilitiesReply: Decodable { let capabilities: [Capability] }
+
+    /// What this Mac will actually do, with your own apps, projects and
+    /// shortcuts already filled in. Asked for rather than hardcoded, so the
+    /// list cannot drift from what the listener allows.
+    func capabilities() async throws -> [Capability] {
+        try await signedGet(path: "capabilities", as: CapabilitiesReply.self).capabilities
     }
 
     func clearHistory() async throws -> Reply {

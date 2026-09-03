@@ -7,7 +7,7 @@
 
 <p align="center">
   <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg">
-  <img alt="iOS 16+" src="https://img.shields.io/badge/iOS-16%2B-000000?logo=apple&logoColor=white">
+  <img alt="iOS 17.2+" src="https://img.shields.io/badge/iOS-17.2%2B-000000?logo=apple&logoColor=white">
   <img alt="Swift 5" src="https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white">
   <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white">
   <img alt="No API key required" src="https://img.shields.io/badge/API%20key-not%20required-brightgreen">
@@ -50,7 +50,7 @@ The Device Access Toolkit (DAT) gives you camera, display, and the pairing
 session. Microphone and speaker audio arrive as ordinary Bluetooth hands-free
 audio, which the app reads with Apple's own AVFoundation. That is why the app
 works even before you add the Meta package — you just won't see glasses session
-status on screen.
+status on screen, and "what am I looking at" will not work.
 
 **2. Audio is 8 kHz mono**, the same quality as a phone call. That is fine for
 speech-to-text, which is all we use it for.
@@ -221,7 +221,69 @@ transcription can never run a command that is not listed here.
 | "add lunch with Sam to my calendar Friday at noon" | Creates a calendar event. |
 | "type out the following…" | Types into whatever app is in front. **Confirmed first.** |
 | "empty the trash" | **Confirmed first** — it is permanent. |
+| "what am I looking at", "read this label" | Takes a photo through the glasses and describes it. |
+| "what's the weather" | Current conditions. |
+| "put this window on the left", "make it full screen" | Moves the front window. |
+| "turn on dark mode" | Switches appearance. |
+| "keep my Mac awake for an hour" | Stops it sleeping. |
+| "set the volume to thirty" | Volume by number, not just up and down. |
 | "continue working on apex sky" | Runs Claude Code in that project. **Confirmed out loud first** — see below. |
+
+## Looking through the glasses
+
+Ask *"what am I looking at"*, *"read this label"* or *"is this ripe"* and the
+glasses take a photo. The answer comes back through the speakers.
+
+The round trip is slightly unusual, because the camera is on your face and
+Claude is on your Mac:
+
+```
+you speak  ->  Mac plans the command, sees it needs eyes
+           ->  Mac replies "take a photo and come back to me"
+           ->  phone captures one frame through the glasses
+           ->  photo is signed and posted to the Mac
+           ->  Mac saves it, Claude Code reads the file and describes it
+           ->  phone speaks the answer
+```
+
+The photo is saved to `~/Pictures/VoiceBridge` because that is how Claude reads
+it — the CLI opens the file with its own Read tool, so this still runs on your
+Claude subscription with no API key. The folder is capped at the last 50 photos.
+Change either in `[actions.look]` in `config.toml`.
+
+There is also a camera button in the composer, next to the microphone. It
+appears only while a glasses session is live. Anything you have typed becomes
+the question, so you can type "how many are left" and tap the camera.
+
+The photo never leaves your own machines. It goes from the glasses to your
+phone to your Mac, and Claude Code reads it locally.
+
+**This needs the Meta toolkit set up** (Part 3 below) and camera permission,
+which the Meta AI app asks for the first time you use it. Without it the button
+stays hidden and the spoken version says there is no glasses session.
+
+## What the toolkit actually exposes
+
+Worth knowing before you plan a feature around it, because the docs read as
+though there is more here than there is. Taken from the `.swiftinterface` files
+in DAT 0.9.0, not from the docs pages:
+
+| Available | Not available |
+|---|---|
+| **Camera** — photos (JPEG/HEIC) and a video frame stream | IMU, accelerometer, gyroscope, head tracking |
+| **Display** — a real layout toolkit for Display glasses, with tappable buttons | The touchpad and its gestures |
+| Device name, type, link state, thermal level | Battery level (existed in 0.2, gone by 0.8) |
+| Registration and session lifecycle | GPS — use the phone's |
+| | Ambient light |
+| | The microphone (it is plain Bluetooth audio) |
+| | The "Hey Meta" wake word |
+
+The giveaway is the SDK's own `Permission` enum: it has exactly one case,
+`.camera`. And the whole of `DeviceState` is a single `thermalLevel` field.
+
+This app links `MWDATCore` and `MWDATCamera`. `MWDATDisplay` is not linked —
+it only does anything on Meta Ray-Ban **Display** glasses, and `device
+.supportsDisplay()` tells you whether you have a pair.
 
 ## Your Claude Code conversations
 
@@ -261,7 +323,13 @@ One screen, built like a modern AI chat app. The conversation is the interface.
 
 - **Type or talk.** A text field for when speaking is awkward, and a hold-to-talk
   microphone next to it. Both go through exactly the same path.
-- **Suggestions** on an empty conversation, tappable to run.
+- **Suggestions** on an empty conversation, tappable to run. They come from the
+  Mac's own catalog, so they name your apps and projects rather than generic
+  examples.
+- **What I can do** in the ••• menu: every action the listener will accept,
+  searchable, with tappable example phrases and a marker on the ones that ask
+  before running. Read from the Mac, so it cannot drift from what is allowed.
+- **A camera button** next to the microphone whenever a glasses session is live.
 - **Action badges** under each reply say what actually ran — `set timer`,
   `open app`, `take note` — so you can see it did the thing rather than just
   talked about it.
@@ -281,8 +349,10 @@ To allow another app, add a line to `[actions.open_app]` in `config.toml`:
 `slack = "Slack"` — the left side is what you say, the right side is the real
 app name. Restart the listener afterwards.
 
-To add a genuinely new kind of action, you edit two places: describe it in the
-prompt in `listener/claude_client.py`, and implement it in `listener/actions.py`.
+To add a genuinely new kind of action, you edit three places: describe it in the
+prompt in `listener/claude_client.py`, implement it in `listener/actions.py`, and
+add an entry to `CATALOG` at the bottom of that same file so it appears under
+"What I can do".
 
 ---
 
@@ -406,6 +476,12 @@ shows elapsed listening time instead, which is what actually predicts the drain.
   every request fails with "the App Transport Security policy requires the use of
   a secure connection" — with nothing in the build output to hint at why.
 - Speech-to-text runs on the iPhone, so your audio is not uploaded anywhere.
+- Photos from the glasses go phone → Mac and are read by Claude Code locally.
+  They are not uploaded. They do sit on disk in `~/Pictures/VoiceBridge` until
+  the 50-photo cap rolls them off, so bear that in mind before pointing the
+  glasses at something you would not want kept.
+- Asking for the weather is the only thing that leaves your network: the place
+  name is sent to wttr.in. Nothing else about you goes with it.
 - Voice-triggered coding work is limited to folders you list in `config.toml`. A
   misheard project name is refused, not guessed at. Inside those folders Claude
   Code may read, edit and run commands, but `git push`, `rm` and `sudo` are
@@ -437,9 +513,11 @@ ios/VoiceBridge/
   MessageRow.swift       bubbles, action badges, thinking indicator
   Haptics.swift          physical feedback
   SessionsView.swift     Claude Code conversation browser
+  CapabilitiesView.swift "What I can do", read from the Mac
   SettingsView.swift     Mac address, shared secret, wake phrase
   VoiceCapture.swift     Bluetooth audio routing + on-device speech-to-text
   GlassesManager.swift   Meta toolkit registration and session
+  GlassesCamera.swift    one photo through the glasses camera
   ListenerClient.swift   signed requests to the Mac
   Speaker.swift          reads replies aloud
   SpokenDecision.swift   parses a spoken yes / no / correction
@@ -459,6 +537,7 @@ listener/
                          clipboard, messages, status, search
   conversation.py        rolling history, and the context fed back to Claude
   sessions.py            read-only browser for Claude Code transcripts
+  photos.py              where glasses photos land, and the cap on the folder
   pending.py             actions parked waiting for you to say yes
   config.example.toml    template for your config.toml
   run.sh                 starts the listener

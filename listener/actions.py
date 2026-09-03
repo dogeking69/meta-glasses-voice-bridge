@@ -52,6 +52,13 @@ def describe(action: str, params: dict, config: dict) -> str:
         )
     if action == "run_shortcut":
         return f"About to run the shortcut {params.get('name', '')}. Say yes or no."
+    if action == "window_control":
+        return f"About to move the window {params.get('position', '')}. Say yes or no."
+    if action == "keep_awake":
+        return (
+            f"About to keep your Mac awake for {params.get('minutes', '')} minutes. "
+            "Say yes or no."
+        )
     if action == "send_message":
         return (
             f"About to message {params.get('to', '')} saying: "
@@ -107,6 +114,14 @@ def run(action: str, params: dict, speak: str, config: dict) -> str:
             return mac_actions.create_event(params)
         if action == "empty_trash":
             return mac_actions.empty_trash()
+        if action == "weather":
+            return mac_actions.weather(params)
+        if action == "window_control":
+            return mac_actions.window_control(params)
+        if action == "appearance":
+            return mac_actions.appearance(params)
+        if action == "keep_awake":
+            return mac_actions.keep_awake(params)
     except MacError as exc:
         raise ActionError(str(exc)) from exc
 
@@ -210,3 +225,180 @@ def _claude_code(params: dict, config: dict) -> str:
 
     reply = proc.stdout.strip()
     return reply[:600] if reply else f"Claude Code finished in {project}."
+
+
+# MARK: - catalog
+
+# What this assistant can do, in the app's words rather than Claude's. The
+# prompt in claude_client.py tells Claude what is possible; this tells the
+# person holding the phone, so the two are deliberately separate.
+#
+# Adding an action means three edits: the prompt, `run()` above, and one entry
+# here so it shows up under "What I can do".
+CATALOG: list[dict] = [
+    {
+        "category": "Ask",
+        "action": "ask_claude",
+        "summary": "Questions, facts, maths, translation, thinking out loud.",
+        "examples": ["How far away is the moon?", "How do you say thank you in Greek?"],
+    },
+    {
+        "category": "Ask",
+        "action": "look",
+        "summary": "Takes a photo through the glasses and describes what it sees.",
+        "examples": ["What am I looking at?", "Read this label"],
+    },
+    {
+        "category": "Ask",
+        "action": "weather",
+        "summary": "Current conditions, here or anywhere.",
+        "examples": ["What's the weather?", "What's it like in Lisbon?"],
+    },
+    {
+        "category": "Ask",
+        "action": "get_status",
+        "summary": "Reads live state off the Mac rather than guessing at it.",
+        "examples": ["What's my battery?", "What app am I in?", "Any unread mail?"],
+    },
+    {
+        "category": "Remember",
+        "action": "take_note",
+        "summary": "Appends to your notes file.",
+        "examples": ["Make a note that the boiler needs servicing"],
+    },
+    {
+        "category": "Remember",
+        "action": "set_reminder",
+        "summary": "Adds to the Mac's Reminders app.",
+        "examples": ["Remind me to call the dentist"],
+    },
+    {
+        "category": "Remember",
+        "action": "set_timer",
+        "summary": "A countdown that notifies on the Mac.",
+        "examples": ["Set a timer for ten minutes"],
+    },
+    {
+        "category": "Remember",
+        "action": "create_event",
+        "summary": "Adds an event to your calendar.",
+        "examples": ["Add lunch with Sam to my calendar Friday at noon"],
+    },
+    {
+        "category": "Control the Mac",
+        "action": "system_control",
+        "summary": "Volume, playback, brightness, lock, sleep, screenshots.",
+        "examples": ["Turn the volume up", "Set the volume to thirty", "Lock the screen"],
+    },
+    {
+        "category": "Control the Mac",
+        "action": "open_app",
+        "summary": "Opens an app. Only the ones you have allowed.",
+        "examples": [],
+    },
+    {
+        "category": "Control the Mac",
+        "action": "app_control",
+        "summary": "Quit, hide or switch to an app.",
+        "examples": ["Quit Chrome", "Switch to Notes"],
+    },
+    {
+        "category": "Control the Mac",
+        "action": "window_control",
+        "summary": "Moves the window in front around the screen.",
+        "examples": ["Put this window on the left", "Make it full screen"],
+    },
+    {
+        "category": "Control the Mac",
+        "action": "appearance",
+        "summary": "Dark mode on, off or flipped.",
+        "examples": ["Turn on dark mode"],
+    },
+    {
+        "category": "Control the Mac",
+        "action": "keep_awake",
+        "summary": "Stops the Mac sleeping while something long is running.",
+        "examples": ["Keep my Mac awake for an hour"],
+    },
+    {
+        "category": "Control the Mac",
+        "action": "clipboard",
+        "summary": "Reads or writes the Mac's clipboard.",
+        "examples": ["What's on my clipboard?", "Copy hello world to my clipboard"],
+    },
+    {
+        "category": "Control the Mac",
+        "action": "type_text",
+        "summary": "Types into whatever app is in front, for dictating.",
+        "examples": ["Type out the following: dear Sam"],
+    },
+    {
+        "category": "Find things",
+        "action": "search_web",
+        "summary": "Opens a web search on the Mac.",
+        "examples": ["Look up the offside rule"],
+    },
+    {
+        "category": "Find things",
+        "action": "find_file",
+        "summary": "Spotlight search by name.",
+        "examples": ["Find the file budget spreadsheet"],
+    },
+    {
+        "category": "Find things",
+        "action": "open_path",
+        "summary": "Opens a file or folder.",
+        "examples": ["Open my downloads folder"],
+    },
+    {
+        "category": "Reach people",
+        "action": "send_message",
+        "summary": "Sends an iMessage.",
+        "examples": ["Text mom saying I'll be late"],
+    },
+    {
+        "category": "Your own things",
+        "action": "run_shortcut",
+        "summary": "Runs one of your macOS Shortcuts.",
+        "examples": [],
+    },
+    {
+        "category": "Your own things",
+        "action": "claude_code",
+        "summary": "Real coding work in a project folder you have allowed.",
+        "examples": [],
+    },
+    {
+        "category": "Your own things",
+        "action": "empty_trash",
+        "summary": "Empties the trash, permanently.",
+        "examples": ["Empty the trash"],
+    },
+]
+
+
+def catalog(config: dict, needs_confirmation: set[str], shortcuts: list[str]) -> list[dict]:
+    """The catalog with your own apps, projects and shortcuts filled in.
+
+    Examples for those three are built from config rather than written down,
+    so the list can never advertise something this Mac would refuse to do.
+    """
+    apps = sorted(_allowed_apps(config))
+    projects = sorted(_claude_code_config(config).get("projects", {}))
+
+    filled = []
+    for entry in CATALOG:
+        examples = list(entry["examples"])
+        if entry["action"] == "open_app":
+            examples = [f"Open {name}" for name in apps[:4]]
+        elif entry["action"] == "claude_code":
+            examples = [f"Continue working on {name}" for name in projects[:3]]
+        elif entry["action"] == "run_shortcut":
+            examples = [f"Run {name}" for name in shortcuts[:3]]
+
+        filled.append({
+            **entry,
+            "examples": examples,
+            "confirm": entry["action"] in needs_confirmation,
+        })
+    return filled

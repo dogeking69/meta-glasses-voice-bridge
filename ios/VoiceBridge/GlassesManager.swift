@@ -47,6 +47,29 @@ final class GlassesManager: ObservableObject {
     private var watchers: [Task<Void, Never>] = []
     #endif
 
+    private let camera = GlassesCamera()
+
+    /// Take a photo through the glasses. The session is private to this class,
+    /// so the capture is offered from here rather than handing it out.
+    func capturePhoto() async throws -> Data {
+        #if canImport(MWDATCamera)
+        guard let session, sessionActive else { throw GlassesCamera.CameraError.noSession }
+        return try await camera.capture(session: session)
+        #else
+        throw GlassesCamera.CameraError.toolkitMissing
+        #endif
+    }
+
+    /// False when the glasses cannot be photographed through right now, which
+    /// is what the camera button in the composer keys off.
+    var canTakePhoto: Bool {
+        #if canImport(MWDATCamera)
+        return sessionActive
+        #else
+        return false
+        #endif
+    }
+
     func start() {
         #if canImport(MWDATCore)
         guard watchers.isEmpty else { return }

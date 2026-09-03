@@ -44,7 +44,8 @@ Actions:
 4. "system_control" - control the Mac itself.
    params: {"command": "<one of: volume_up, volume_down, mute, unmute,
              play_pause, next_track, previous_track, lock_screen, sleep,
-             screenshot>"}
+             screenshot, set_volume>"}
+   set_volume also takes {"level": <0 to 100>}.
 
 5. "take_note" - write something down for later.
    params: {"text": "<the note>"}
@@ -54,7 +55,8 @@ Actions:
 
 7. "get_status" - read back live information from the Mac.
    params: {"what": "<one of: time, date, battery, now_playing, next_event,
-             disk, notes, frontmost, shortcuts, uptime, wifi>"}
+             disk, notes, frontmost, shortcuts, uptime, wifi, volume, mail,
+             reminders, ip>"}
    Use "frontmost" when asked what app they are in. Never guess at live state -
    always read it.
 
@@ -100,6 +102,24 @@ Actions:
 
 20. "empty_trash" - permanently empty the Mac's trash. Confirmed out loud.
     params: {}
+
+21. "weather" - current conditions outside.
+    params: {"location": "<place, or empty for where they are>"}
+
+22. "window_control" - move the window that is in front.
+    params: {"position": "left" | "right" | "top" | "bottom" | "full" | "center"}
+
+23. "appearance" - the Mac's dark mode.
+    params: {"mode": "dark" | "light" | "toggle"}
+
+24. "keep_awake" - stop the Mac going to sleep for a while.
+    params: {"minutes": <number>} or {"mode": "stop"} to let it sleep again.
+
+25. "look" - use the camera in the glasses to see what the user is looking at.
+    Use this for anything about their surroundings: "what am I looking at",
+    "read this label", "what does this sign say", "is this ripe". The photo is
+    taken after you reply, so put the question itself in params.
+    params: {"question": "<what to answer about the photo>"}
 
 Rules:
 - Prefer answering directly with "ask_claude" over opening things.
@@ -198,3 +218,61 @@ def _parse(raw: str) -> dict:
     parsed.setdefault("params", {})
     parsed.setdefault("speak", "")
     return parsed
+
+
+_LOOK_PROMPT = """\
+Look at the image file at {path} using the Read tool, then answer this question
+about it: {question}
+
+Your answer is read aloud through the speakers in a pair of smart glasses.
+Write plain spoken sentences: no markdown, no lists, no file paths, no emoji.
+Two sentences at most unless the user clearly asked for detail. The photo was
+taken from the wearer's point of view, so "you" means them. If the photo is too
+dark or blurred to tell, say so plainly rather than guessing.
+"""
+
+
+def describe_image(image_path: Path, question: str, config: ClaudeConfig) -> str:
+    """Ask Claude what is in a photo taken by the glasses.
+
+    The CLI reads the file off disk with its own Read tool, so this still runs
+    on the Claude subscription — no API key and no image upload from here.
+    """
+    prompt = _LOOK_PROMPT.format(
+        path=image_path, question=question.strip() or "What am I looking at?"
+    )
+
+    cmd = [
+        config.binary,
+        "-p",
+        "--model",
+        config.model,
+        # Read is the only tool it needs, and the only one it gets.
+        "--allowed-tools",
+        "Read",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=max(config.timeout_seconds, 120),
+            cwd=image_path.parent,
+        )
+    except FileNotFoundError as exc:
+        raise ClaudeError(f"Claude CLI not found at {config.binary}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ClaudeError("Claude took too long to look at that photo.") from exc
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
+        if "OAuth" in detail or "authenticate" in detail.lower():
+            raise ClaudeError("Claude CLI is not logged in. Run 'claude' in a terminal.")
+        raise ClaudeError(f"Claude could not read the photo: {detail[:200]}")
+
+    answer = proc.stdout.strip()
+    if not answer:
+        raise ClaudeError("Claude had nothing to say about that photo.")
+    return answer[:600]
