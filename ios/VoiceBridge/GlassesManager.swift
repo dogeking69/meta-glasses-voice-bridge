@@ -19,6 +19,20 @@ final class GlassesManager: ObservableObject {
     @Published var sessionActive = false
     @Published var lastError: String?
 
+    /// What the Glasses row shows. Registration and a live session are two
+    /// different things: you can be registered with Meta and still have no
+    /// glasses switched on, so saying "Connected" for registration alone is a
+    /// lie that contradicts the error underneath it.
+    var statusText: String {
+        #if canImport(MWDATCore)
+        if sessionActive { return "Connected" }
+        if isRegistered { return deviceCount > 0 ? "Starting…" : "Registered, glasses off" }
+        return registrationText
+        #else
+        return "Toolkit not added"
+        #endif
+    }
+
     /// False when the MWDATCore package has not been added to the project yet.
     var toolkitAvailable: Bool {
         #if canImport(MWDATCore)
@@ -140,10 +154,10 @@ final class GlassesManager: ObservableObject {
     /// RegistrationState has no user-facing text of its own.
     private static func describe(_ state: RegistrationState) -> String {
         switch state {
-        case .unavailable: return "Meta AI app unavailable"
-        case .available: return "Ready to connect"
-        case .registering: return "Connecting…"
-        case .registered: return "Connected"
+        case .unavailable: return "Meta AI unavailable"
+        case .available: return "Not registered"
+        case .registering: return "Registering…"
+        case .registered: return "Registered"
         @unknown default: return "Unknown"
         }
     }

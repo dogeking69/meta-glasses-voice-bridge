@@ -17,6 +17,8 @@ struct ContentView: View {
     @State private var isSending = false
     @State private var permissionsGranted = false
     @State private var showingSettings = false
+    /// nil = not checked yet. Green only when the Mac actually answered.
+    @State private var macReachable: Bool?
 
     init() {
         let capture = VoiceCapture()
@@ -49,7 +51,7 @@ struct ContentView: View {
                     Image(systemName: "gearshape")
                 }
             }
-            .sheet(isPresented: $showingSettings) {
+            .sheet(isPresented: $showingSettings, onDismiss: { Task { await checkMac() } }) {
                 SettingsView().environmentObject(settings)
             }
             .task {
@@ -64,6 +66,7 @@ struct ContentView: View {
                     PendingIntent.toggleRequested = false
                     toggleHandsFree()
                 }
+                await checkMac()
             }
             .onChange(of: scenePhase) { _ in
                 // The Action Button relaunches or foregrounds the app to run the
@@ -81,14 +84,14 @@ struct ContentView: View {
     private var statusPanel: some View {
         VStack(spacing: 8) {
             row("Glasses",
-                value: glasses.toolkitAvailable ? glasses.registrationText : "Toolkit not added",
+                value: glasses.statusText,
                 good: glasses.sessionActive)
             row("Microphone",
                 value: capture.inputRouteName,
                 good: capture.usingGlassesMic)
             row("Mac",
-                value: settings.isConfigured ? "\(settings.host):\(settings.port)" : "Not set up",
-                good: settings.isConfigured)
+                value: macStatus,
+                good: macReachable == true)
             row("Hands-free",
                 value: handsFreeStatus,
                 good: session.isRunning)
@@ -202,6 +205,15 @@ struct ContentView: View {
         permissionsGranted && settings.isConfigured && !isSending && !session.isRunning
     }
 
+    private var macStatus: String {
+        guard settings.isConfigured else { return "Not set up" }
+        switch macReachable {
+        case .some(true): return "\(settings.host):\(settings.port)"
+        case .some(false): return "Not reachable"
+        case nil: return "Checking…"
+        }
+    }
+
     private var handsFreeStatus: String {
         switch session.phase {
         case .off: return "Off"
@@ -258,6 +270,16 @@ struct ContentView: View {
 
     private func send(_ transcript: String) async {
         await perform { try await $0.send(transcript: transcript) }
+    }
+
+    /// Actually ask the Mac whether it is there, rather than assuming.
+    private func checkMac() async {
+        guard settings.isConfigured, let baseURL = settings.baseURL else {
+            macReachable = nil
+            return
+        }
+        let client = ListenerClient(baseURL: baseURL, sharedSecret: settings.sharedSecret)
+        macReachable = await client.checkHealth()
     }
 
     // MARK: - Hands-free
