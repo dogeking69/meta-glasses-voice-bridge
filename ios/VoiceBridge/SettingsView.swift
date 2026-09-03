@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct SettingsView: View {
+    /// False when shown as a tab, where there is nothing to dismiss.
+    var showsDoneButton = true
+
     @EnvironmentObject private var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
 
@@ -62,8 +65,10 @@ struct SettingsView: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                Button("Done") { dismiss() }
-                    .disabled(!settings.isConfigured)
+                if showsDoneButton {
+                    Button("Done") { dismiss() }
+                        .disabled(!settings.isConfigured)
+                }
             }
         }
     }

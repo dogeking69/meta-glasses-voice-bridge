@@ -22,6 +22,7 @@ from pathlib import Path
 
 import actions
 import claude_client
+from conversation import Conversation, Turn
 from pending import Pending, PendingStore
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.toml"
@@ -48,6 +49,10 @@ def load_config() -> dict:
 
 CONFIG = load_config()
 PENDING = PendingStore(CONFIG.get("confirm", {}).get("timeout_seconds", 180))
+CONVERSATION = Conversation(
+    keep=CONFIG.get("history", {}).get("keep", 200),
+    context_turns=CONFIG.get("history", {}).get("context_turns", 6),
+)
 
 # Actions that are read back to you and only run once you say yes.
 NEEDS_CONFIRMATION = set(CONFIG.get("confirm", {}).get("require", ["claude_code"]))
@@ -110,11 +115,37 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/health":
             self._respond(200, {"ok": True, "service": "voice-bridge-listener"})
-        else:
-            self._respond(404, {"ok": False, "error": "Not found"})
+            return
+        if self.path.startswith("/history"):
+            # Signed like everything else: history is a record of your life.
+            if not self._authorised(b""):
+                return
+            turns = [
+                {
+                    "id": t.id, "transcript": t.transcript, "action": t.action,
+                    "params": t.params, "reply": t.reply, "ok": t.ok,
+                    "error": t.error, "at": t.at,
+                }
+                for t in CONVERSATION.recent(100)
+            ]
+            self._respond(200, {"ok": True, "turns": turns})
+            return
+        self._respond(404, {"ok": False, "error": "Not found"})
+
+    def _authorised(self, body: bytes) -> bool:
+        timestamp = self.headers.get("X-Timestamp", "")
+        provided = self.headers.get("X-Signature", "")
+        fresh, reason = timestamp_is_fresh(timestamp)
+        if not fresh:
+            self._respond(401, {"ok": False, "error": reason})
+            return False
+        if not hmac.compare_digest(provided, expected_signature(timestamp, body)):
+            self._respond(401, {"ok": False, "error": "Bad signature. Check the shared secret."})
+            return False
+        return True
 
     def do_POST(self) -> None:
-        if self.path not in ("/command", "/confirm"):
+        if self.path not in ("/command", "/confirm", "/history/clear"):
             self._respond(404, {"ok": False, "error": "Not found"})
             return
 
@@ -124,21 +155,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         body = self.rfile.read(length)
 
-        timestamp = self.headers.get("X-Timestamp", "")
-        provided = self.headers.get("X-Signature", "")
-
-        fresh, reason = timestamp_is_fresh(timestamp)
-        if not fresh:
-            self._respond(401, {"ok": False, "error": reason})
-            return
-        if not hmac.compare_digest(provided, expected_signature(timestamp, body)):
-            self._respond(401, {"ok": False, "error": "Bad signature. Check the shared secret."})
+        if not self._authorised(body):
             return
 
         try:
             payload = json.loads(body)
         except json.JSONDecodeError:
             self._respond(400, {"ok": False, "error": "Body must be JSON."})
+            return
+
+        if self.path == "/history/clear":
+            CONVERSATION.clear()
+            print("  history cleared", flush=True)
+            self._respond(200, {"ok": True, "speak": "History cleared."})
             return
 
         if self.path == "/confirm":
@@ -170,7 +199,7 @@ class Handler(BaseHTTPRequestHandler):
             self._offer(action, params, command.get("speak") or "", transcript)
             return
 
-        self._execute(action, params, command.get("speak") or "", started)
+        self._execute(action, params, command.get("speak") or "", started, transcript)
 
     def _handle_confirm(self, payload: dict) -> None:
         token = str(payload.get("pending_id", ""))
@@ -211,7 +240,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         print("  confirmed", flush=True)
-        self._execute(pending.action, pending.params, pending.speak, time.monotonic())
+        self._execute(pending.action, pending.params, pending.speak,
+                      time.monotonic(), pending.transcript)
 
     # MARK: helpers
 
@@ -226,6 +256,7 @@ class Handler(BaseHTTPRequestHandler):
             list(CONFIG.get("actions", {}).get("open_app", {})),
             list(CONFIG.get("actions", {}).get("claude_code", {}).get("projects", {})),
             claude_config,
+            context=CONVERSATION.context(),
         )
 
     def _offer(self, action: str, params: dict, speak: str, transcript: str) -> None:
@@ -247,16 +278,19 @@ class Handler(BaseHTTPRequestHandler):
             "speak": description,
         })
 
-    def _execute(self, action: str, params: dict, speak: str, started: float) -> None:
+    def _execute(self, action: str, params: dict, speak: str, started: float,
+                 transcript: str = "") -> None:
         try:
             spoken = actions.run(action, params, speak, CONFIG)
         except actions.ActionError as exc:
             print(f"  action error: {exc}", flush=True)
+            CONVERSATION.add(Turn(transcript, action, params, "", False, str(exc)))
             self._respond(200, {"ok": False, "error": str(exc), "speak": str(exc)})
             return
 
         elapsed = time.monotonic() - started
         print(f'  said: "{spoken}"  ({elapsed:.1f}s)', flush=True)
+        CONVERSATION.add(Turn(transcript, action, params, spoken, True, ""))
         self._respond(200, {"ok": True, "action": action, "speak": spoken})
 
 

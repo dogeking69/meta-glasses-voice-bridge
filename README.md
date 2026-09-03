@@ -201,9 +201,35 @@ transcription can never run a command that is not listed here.
 
 | You say | What happens |
 |---|---|
-| "open spotify" | Opens Spotify on your Mac. Only apps listed under `[actions.open_app]` in `config.toml` are allowed. |
-| "continue working on apex sky" | Runs Claude Code in that project folder. **Confirmed out loud first** — see below. |
-| anything else | Claude answers, and the answer is read aloud through the glasses. |
+| "how far away is the moon" | Claude answers out loud. |
+| "and what about the sun" | Follow-ups work — recent turns are given back to Claude as context. |
+| "open spotify" | Opens an app. Only apps under `[actions.open_app]` in `config.toml`. |
+| "turn the volume up", "pause the music", "lock the screen" | Controls the Mac. |
+| "make a note that…" | Appends to `~/Documents/voice-notes.md`. |
+| "remind me to…" | Adds to the Mac's Reminders app. |
+| "what time is it", "what's my battery", "what's playing", "what's next on my calendar" | Reads live state off the Mac. |
+| "look up …" | Opens a web search on the Mac. |
+| "continue working on apex sky" | Runs Claude Code in that project. **Confirmed out loud first** — see below. |
+
+## Context
+
+The listener keeps a rolling conversation log and feeds the last few turns back
+to Claude, so pronouns and follow-ups resolve against what was actually said:
+
+> **You:** "how far away is the moon" — *"About 239,000 miles on average."*
+> **You:** "and what about the sun" — *"About 93 million miles."*
+> **You:** "what did I just ask you to write down" — *"You asked me to note that…"*
+
+Depth is `context_turns` in `config.toml`. History lives in `listener/history.json`,
+which is gitignored — it is a record of everything you have said.
+
+## History tab
+
+The app has three tabs: **Talk**, **History**, **Settings**. History pulls from
+the listener rather than the phone, so it survives reinstalls and shows what
+actually ran: your words, the action, the reply, timestamps, and failures in
+orange. Pull to refresh; the trash button clears both the history and the context
+Claude sees.
 
 To allow another app, add a line to `[actions.open_app]` in `config.toml`:
 `slack = "Slack"` — the left side is what you say, the right side is the real
@@ -358,8 +384,10 @@ shows elapsed listening time instead, which is what actually predicts the drain.
 ```
 ios/VoiceBridge/
   VoiceBridgeApp.swift   app entry, Meta toolkit setup, registration callback
-  ContentView.swift      main screen: status, talk button, transcript
-  SettingsView.swift     Mac address and shared secret
+  ContentView.swift      the three tabs
+  SettingsView.swift     Mac address, shared secret, wake phrase
+  TalkView.swift         the Talk tab
+  ChatView.swift         the History tab
   VoiceCapture.swift     Bluetooth audio routing + on-device speech-to-text
   GlassesManager.swift   Meta toolkit registration and session
   ListenerClient.swift   signed requests to the Mac
@@ -377,6 +405,8 @@ listener/
   server.py              the local server, signature checking, confirmations
   claude_client.py       runs the Claude Code CLI, parses its JSON
   actions.py             the allowed actions, and how they are described aloud
+  mac_actions.py         Mac control: volume, notes, reminders, status, search
+  conversation.py        rolling history, and the context fed back to Claude
   pending.py             actions parked waiting for you to say yes
   config.example.toml    template for your config.toml
   run.sh                 starts the listener

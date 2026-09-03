@@ -62,6 +62,45 @@ struct ListenerClient {
         return reply
     }
 
+    struct Turn: Decodable, Identifiable {
+        let id: String
+        let transcript: String
+        let action: String
+        let reply: String
+        let ok: Bool
+        let error: String
+        let at: Double
+
+        var date: Date { Date(timeIntervalSince1970: at) }
+    }
+
+    private struct HistoryReply: Decodable {
+        let ok: Bool
+        let turns: [Turn]
+    }
+
+    /// Everything the Mac has done, newest last.
+    func history() async throws -> [Turn] {
+        let timestamp = String(Int(Date().timeIntervalSince1970))
+        var request = URLRequest(url: baseURL.appendingPathComponent("history"))
+        request.timeoutInterval = 20
+        request.setValue(timestamp, forHTTPHeaderField: "X-Timestamp")
+        // Signed over an empty body, matching the listener.
+        request.setValue(signature(timestamp: timestamp, body: Data()), forHTTPHeaderField: "X-Signature")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard let reply = try? decoder.decode(HistoryReply.self, from: data) else {
+            throw ListenerError.badResponse(status: (response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        return reply.turns
+    }
+
+    func clearHistory() async throws -> Reply {
+        try await post(path: "history/clear", fields: [:])
+    }
+
     /// Quick check that the Mac is reachable, used by the Settings screen.
     func checkHealth() async -> Bool {
         var request = URLRequest(url: baseURL.appendingPathComponent("health"))

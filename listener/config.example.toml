@@ -21,6 +21,12 @@ binary = "claude"
 model = "sonnet"
 timeout_seconds = 60
 
+[history]
+# How many turns to keep, and how many to feed back to Claude as context.
+# Context is what makes "and open notes too" or "what did I just ask" work.
+keep = 200
+context_turns = 6
+
 [confirm]
 # Actions that are read back to you out loud and only run once you say "yes".
 # Anything listed here can never be triggered by a single misheard sentence.
@@ -55,3 +61,7 @@ allowed_tools = "Read Edit Write Glob Grep Bash"
 disallowed_tools = "Bash(git push:*) Bash(rm:*) Bash(sudo:*) Bash(curl:*)"
 # Coding tasks take longer than a question.
 timeout_seconds = 600
+
+# Where spoken notes are appended.
+[actions.take_note]
+file = "~/Documents/voice-notes.md"

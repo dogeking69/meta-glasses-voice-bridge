@@ -14,6 +14,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import mac_actions
+from mac_actions import MacError
+
 
 class ActionError(RuntimeError):
     pass
@@ -31,6 +34,13 @@ def describe(action: str, params: dict, config: dict) -> str:
     if action == "open_app":
         name = _resolve_app(params, config)
         return f"About to open {name}. Say yes or no."
+    if action == "set_reminder":
+        return f"About to remind you: {params.get('text', '')}. Say yes or no."
+    if action == "take_note":
+        return f"About to note: {params.get('text', '')}. Say yes or no."
+    if action == "system_control":
+        command = str(params.get("command", "")).replace("_", " ")
+        return f"About to {command}. Say yes or no."
     return f"About to run {action}. Say yes or no."
 
 
@@ -42,6 +52,23 @@ def run(action: str, params: dict, speak: str, config: dict) -> str:
         return _claude_code(params, config)
     if action == "ask_claude":
         return speak or "I did not have an answer for that."
+
+    # Everything below lives in mac_actions. Its errors mean the same thing to
+    # the caller, so they are re-raised as ActionError.
+    try:
+        if action == "system_control":
+            return mac_actions.system_control(params, speak)
+        if action == "take_note":
+            return mac_actions.take_note(params, config)
+        if action == "set_reminder":
+            return mac_actions.set_reminder(params)
+        if action == "get_status":
+            return mac_actions.get_status(params, config)
+        if action == "search_web":
+            return mac_actions.search_web(params, speak)
+    except MacError as exc:
+        raise ActionError(str(exc)) from exc
+
     raise ActionError(f"Unknown action: {action!r}")
 
 
