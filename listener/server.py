@@ -22,6 +22,8 @@ from pathlib import Path
 
 import actions
 import claude_client
+import mac_actions
+import sessions
 from conversation import Conversation, Turn
 from pending import Pending, PendingStore
 
@@ -89,6 +91,21 @@ def expected_signature(timestamp: str, body: bytes) -> str:
     return hmac.new(secret, payload, hashlib.sha256).hexdigest()
 
 
+_SHORTCUTS_CACHE: dict = {"names": [], "at": 0.0}
+
+
+def _shortcut_names() -> list[str]:
+    """Shortcut names change rarely and listing them costs a subprocess, so the
+    result is cached for a few minutes."""
+    if time.time() - _SHORTCUTS_CACHE["at"] > 300:
+        try:
+            _SHORTCUTS_CACHE["names"] = mac_actions.list_shortcuts()
+        except Exception:
+            _SHORTCUTS_CACHE["names"] = []
+        _SHORTCUTS_CACHE["at"] = time.time()
+    return _SHORTCUTS_CACHE["names"]
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -116,6 +133,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._respond(200, {"ok": True, "service": "voice-bridge-listener"})
             return
+        if self.path.startswith("/sessions"):
+            if not self._authorised(b""):
+                return
+            self._handle_sessions()
+            return
         if self.path.startswith("/history"):
             # Signed like everything else: history is a record of your life.
             if not self._authorised(b""):
@@ -131,6 +153,21 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(200, {"ok": True, "turns": turns})
             return
         self._respond(404, {"ok": False, "error": "Not found"})
+
+    def _handle_sessions(self) -> None:
+        """Browse Claude Code conversations stored on this Mac. Read-only."""
+        path = self.path.split("?", 1)[0]
+        parts = [p for p in path.split("/") if p]
+
+        if len(parts) == 1:
+            self._respond(200, {"ok": True, "sessions": sessions.list_sessions(limit=40)})
+            return
+
+        session = sessions.read_session(parts[1])
+        if session is None:
+            self._respond(404, {"ok": False, "error": "No such session."})
+            return
+        self._respond(200, {"ok": True, "session": session})
 
     def _authorised(self, body: bytes) -> bool:
         timestamp = self.headers.get("X-Timestamp", "")
@@ -257,6 +294,7 @@ class Handler(BaseHTTPRequestHandler):
             list(CONFIG.get("actions", {}).get("claude_code", {}).get("projects", {})),
             claude_config,
             context=CONVERSATION.context(),
+            shortcuts=_shortcut_names(),
         )
 
     def _offer(self, action: str, params: dict, speak: str, transcript: str) -> None:

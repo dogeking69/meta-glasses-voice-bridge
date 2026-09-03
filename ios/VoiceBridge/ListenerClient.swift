@@ -97,6 +97,60 @@ struct ListenerClient {
         return reply.turns
     }
 
+    // MARK: - Claude Code sessions
+
+    struct SessionSummary: Decodable, Identifiable {
+        let id: String
+        let title: String
+        let project: String
+        let messages: Int
+        let modified: Double
+
+        var date: Date { Date(timeIntervalSince1970: modified) }
+    }
+
+    struct SessionTurn: Decodable, Identifiable {
+        let role: String
+        let text: String
+        let at: Double
+        var id: String { "\(role)-\(at)-\(text.prefix(24))" }
+        var isUser: Bool { role == "user" }
+    }
+
+    struct SessionDetail: Decodable {
+        let id: String
+        let title: String
+        let project: String
+        let turns: [SessionTurn]
+    }
+
+    private struct SessionsReply: Decodable { let sessions: [SessionSummary] }
+    private struct SessionReply: Decodable { let session: SessionDetail }
+
+    func sessions() async throws -> [SessionSummary] {
+        try await signedGet(path: "sessions", as: SessionsReply.self).sessions
+    }
+
+    func session(id: String) async throws -> SessionDetail {
+        try await signedGet(path: "sessions/\(id)", as: SessionReply.self).session
+    }
+
+    private func signedGet<T: Decodable>(path: String, as type: T.Type) async throws -> T {
+        let timestamp = String(Int(Date().timeIntervalSince1970))
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.timeoutInterval = 45
+        request.setValue(timestamp, forHTTPHeaderField: "X-Timestamp")
+        request.setValue(signature(timestamp: timestamp, body: Data()), forHTTPHeaderField: "X-Signature")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard let decoded = try? decoder.decode(T.self, from: data) else {
+            throw ListenerError.badResponse(status: (response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        return decoded
+    }
+
     func clearHistory() async throws -> Reply {
         try await post(path: "history/clear", fields: [:])
     }

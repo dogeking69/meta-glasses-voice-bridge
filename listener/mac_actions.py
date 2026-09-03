@@ -129,6 +129,22 @@ def get_status(params: dict, config: dict) -> str:
         return f"{parts[3]} free of {parts[1]}."
     if what == "notes":
         return _recent_notes(config)
+    if what in ("frontmost", "frontmost_app", "current_app"):
+        return frontmost_app()
+    if what == "shortcuts":
+        names = list_shortcuts()
+        if not names:
+            return "You have no shortcuts."
+        return f"You have {len(names)} shortcuts, including " + ", ".join(names[:5]) + "."
+    if what == "uptime":
+        out = subprocess.run(["uptime"], capture_output=True, text=True, timeout=10).stdout
+        return "Your Mac says: " + out.split("up ", 1)[-1].split(",")[0].strip() + "."
+    if what == "wifi":
+        name = subprocess.run(
+            ["networksetup", "-getairportnetwork", "en0"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout.strip()
+        return name.split(": ", 1)[-1] if ": " in name else "Not on Wi-Fi." 
 
     raise MacError(f"I cannot look up {what}.")
 
@@ -284,3 +300,146 @@ def send_message(params: dict) -> str:
         f'buddy "{esc_to}" of (1st service whose service type = iMessage)'
     )
     return f"Message sent to {recipient}."
+
+
+# MARK: - Shortcuts
+
+def list_shortcuts() -> list[str]:
+    out = subprocess.run(["shortcuts", "list"], capture_output=True, text=True, timeout=20)
+    return [line.strip() for line in out.stdout.splitlines() if line.strip()]
+
+
+def run_shortcut(params: dict, speak: str) -> str:
+    """Runs a macOS Shortcut by name. Anything the user builds in the Shortcuts
+    app becomes voice-callable without changing this code."""
+    name = str(params.get("name", "")).strip()
+    if not name:
+        raise MacError("I did not catch which shortcut to run.")
+
+    available = list_shortcuts()
+    match = next((s for s in available if s.lower() == name.lower()), None)
+    if match is None:
+        match = next((s for s in available if name.lower() in s.lower()), None)
+    if match is None:
+        sample = ", ".join(available[:8]) or "none"
+        raise MacError(f"I could not find a shortcut called {name}. You have: {sample}.")
+
+    result = subprocess.run(["shortcuts", "run", match], capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        raise MacError(f"{match} failed: {(result.stderr or '').strip()[:120]}")
+    output = (result.stdout or "").strip()
+    return output[:400] if output else (speak or f"Ran {match}.")
+
+
+# MARK: - applications
+
+def app_control(params: dict, speak: str) -> str:
+    action = str(params.get("action", "")).strip().lower()
+    name = str(params.get("app", "")).strip()
+    if not name:
+        raise MacError("I did not catch which app.")
+    escaped = name.replace('"', '\\"')
+
+    if action == "quit":
+        osascript(f'tell application "{escaped}" to quit')
+        return speak or f"Closed {name}."
+    if action == "hide":
+        osascript(f'tell application "System Events" to set visible of process "{escaped}" to false')
+        return speak or f"Hid {name}."
+    if action == "focus":
+        osascript(f'tell application "{escaped}" to activate')
+        return speak or f"Switched to {name}."
+
+    raise MacError("I can quit, hide or focus an app.")
+
+
+def frontmost_app() -> str:
+    name = osascript(
+        'tell application "System Events" to get name of first application process '
+        "whose frontmost is true"
+    )
+    return f"You are in {name}."
+
+
+# MARK: - files
+
+def find_file(params: dict) -> str:
+    """Spotlight search. Read-only: it reports paths, it does not open them."""
+    query = str(params.get("query", "")).strip()
+    if not query:
+        raise MacError("I did not catch what to look for.")
+
+    result = subprocess.run(
+        ["mdfind", "-name", query], capture_output=True, text=True, timeout=45
+    )
+    hits = [line for line in result.stdout.splitlines() if line.strip()][:5]
+    if not hits:
+        return f"I could not find anything called {query}."
+
+    names = [Path(h).name for h in hits]
+    listed = ", ".join(names[:3])
+    more = f", and {len(hits) - 3} more" if len(hits) > 3 else ""
+    return f"I found {listed}{more}."
+
+
+def open_path(params: dict, speak: str) -> str:
+    raw = str(params.get("path", "")).strip()
+    if not raw:
+        raise MacError("I did not catch what to open.")
+    path = Path(raw).expanduser()
+    if not path.exists():
+        raise MacError(f"There is nothing at {path}.")
+    subprocess.run(["open", str(path)], timeout=20)
+    return speak or f"Opening {path.name}."
+
+
+# MARK: - typing and display
+
+def type_text(params: dict) -> str:
+    """Types into whatever app is in front. Useful for dictating into a document
+    without touching the keyboard."""
+    text = str(params.get("text", "")).strip()
+    if not text:
+        raise MacError("There was nothing to type.")
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    osascript(f'tell application "System Events" to keystroke "{escaped}"', timeout=60)
+    return "Typed it."
+
+
+def brightness(params: dict) -> str:
+    direction = str(params.get("direction", "")).strip().lower()
+    key = {"up": 144, "down": 145}.get(direction)
+    if key is None:
+        raise MacError("I can turn the brightness up or down.")
+    osascript(f'tell application "System Events" to key code {key}')
+    return f"Brightness {direction}."
+
+
+# MARK: - calendar
+
+def create_event(params: dict) -> str:
+    title = str(params.get("title", "")).strip()
+    when = str(params.get("when", "")).strip()
+    if not title:
+        raise MacError("I did not catch what the event is.")
+    if not when:
+        raise MacError("I did not catch when the event is.")
+
+    esc_title = title.replace('"', '\\"')
+    esc_when = when.replace('"', '\\"')
+    osascript(
+        f'set theDate to date "{esc_when}"\n'
+        'tell application "Calendar" to tell calendar 1 to make new event '
+        f'with properties {{summary:"{esc_title}", start date:theDate, '
+        "end date:theDate + (1 * hours)}}",
+        timeout=45,
+    )
+    return f"Added {title} to your calendar."
+
+
+# MARK: - trash
+
+def empty_trash() -> str:
+    """Destructive, so it is confirmed out loud before it runs."""
+    osascript('tell application "Finder" to empty trash')
+    return "Trash emptied."

@@ -30,7 +30,7 @@ context_turns = 6
 [confirm]
 # Actions that are read back to you out loud and only run once you say "yes".
 # Anything listed here can never be triggered by a single misheard sentence.
-require = ["claude_code", "send_message"]
+require = ["claude_code", "send_message", "empty_trash", "type_text", "run_shortcut"]
 # How long a pending confirmation stays valid.
 timeout_seconds = 180
 

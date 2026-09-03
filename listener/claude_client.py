@@ -54,7 +54,9 @@ Actions:
 
 7. "get_status" - read back live information from the Mac.
    params: {"what": "<one of: time, date, battery, now_playing, next_event,
-             disk, notes>"}
+             disk, notes, frontmost, shortcuts, uptime, wifi>"}
+   Use "frontmost" when asked what app they are in. Never guess at live state -
+   always read it.
 
 8. "search_web" - open a web search on the Mac when the user wants to look
    something up rather than just be told.
@@ -71,6 +73,33 @@ Actions:
 
 12. "send_message" - send an iMessage. Always confirmed out loud first.
     params: {"to": "<name or number>", "text": "<the message>"}
+
+13. "run_shortcut" - run one of the user's own macOS Shortcuts. Prefer this
+    when a shortcut clearly matches what they asked for.
+    params: {"name": "<shortcut name>"}
+    Available: %(shortcuts)s
+
+14. "app_control" - quit, hide or switch to an application.
+    params: {"action": "quit" | "hide" | "focus", "app": "<name>"}
+
+15. "find_file" - Spotlight search for a file by name.
+    params: {"query": "<name>"}
+
+16. "open_path" - open a specific file or folder.
+    params: {"path": "<path, ~ allowed>"}
+
+17. "type_text" - type into whatever app is in front, for dictating.
+    params: {"text": "<what to type>"}
+
+18. "brightness" - screen brightness.
+    params: {"direction": "up" | "down"}
+
+19. "create_event" - add a calendar event. "when" must be a date AppleScript
+    understands, like "September 5, 2026 2:00 PM".
+    params: {"title": "<what>", "when": "<when>"}
+
+20. "empty_trash" - permanently empty the Mac's trash. Confirmed out loud.
+    params: {}
 
 Rules:
 - Prefer answering directly with "ask_claude" over opening things.
@@ -100,13 +129,16 @@ def ask(
     allowed_projects: list[str],
     config: ClaudeConfig,
     context: str = "",
+    shortcuts: list[str] | None = None,
 ) -> dict:
     """Send the transcript to Claude and return the parsed command dict."""
     _WORKDIR.mkdir(exist_ok=True)
+    shortcuts = shortcuts or []
 
     system = _SYSTEM_PROMPT % {
         "apps": ", ".join(sorted(allowed_apps)) or "none configured",
         "projects": ", ".join(sorted(allowed_projects)) or "none configured",
+        "shortcuts": ", ".join(shortcuts[:60]) or "none",
     }
     if context:
         system += f"\n\nRecent conversation, oldest first:\n{context}\n"

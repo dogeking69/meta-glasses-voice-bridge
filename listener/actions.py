@@ -41,6 +41,17 @@ def describe(action: str, params: dict, config: dict) -> str:
     if action == "system_control":
         command = str(params.get("command", "")).replace("_", " ")
         return f"About to {command}. Say yes or no."
+    if action == "empty_trash":
+        return "About to empty your trash permanently. Say yes or no."
+    if action == "type_text":
+        return f"About to type: {params.get('text', '')}. Say yes or no."
+    if action == "app_control":
+        return (
+            f"About to {params.get('action', '')} {params.get('app', '')}. "
+            "Say yes or no."
+        )
+    if action == "run_shortcut":
+        return f"About to run the shortcut {params.get('name', '')}. Say yes or no."
     if action == "send_message":
         return (
             f"About to message {params.get('to', '')} saying: "
@@ -80,6 +91,22 @@ def run(action: str, params: dict, speak: str, config: dict) -> str:
             return mac_actions.open_url(params, speak)
         if action == "send_message":
             return mac_actions.send_message(params)
+        if action == "run_shortcut":
+            return mac_actions.run_shortcut(params, speak)
+        if action == "app_control":
+            return mac_actions.app_control(params, speak)
+        if action == "find_file":
+            return mac_actions.find_file(params)
+        if action == "open_path":
+            return mac_actions.open_path(params, speak)
+        if action == "type_text":
+            return mac_actions.type_text(params)
+        if action == "brightness":
+            return mac_actions.brightness(params)
+        if action == "create_event":
+            return mac_actions.create_event(params)
+        if action == "empty_trash":
+            return mac_actions.empty_trash()
     except MacError as exc:
         raise ActionError(str(exc)) from exc
 

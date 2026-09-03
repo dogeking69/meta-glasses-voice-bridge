@@ -212,7 +212,36 @@ transcription can never run a command that is not listed here.
 | "set a timer for ten minutes" | Counts down and notifies on the Mac. |
 | "copy hello world to my clipboard", "what's on my clipboard" | Reads and writes the Mac clipboard. |
 | "text mom saying I'll be late" | Sends an iMessage. **Confirmed out loud first.** |
+| "run my morning routine" | Runs one of your own macOS Shortcuts. **Confirmed first.** |
+| "quit Chrome", "switch to Notes" | Quit, hide or focus an app. **Confirmed first.** |
+| "find the file budget spreadsheet" | Spotlight search. |
+| "open my downloads folder" | Opens any file or folder. |
+| "what app am I in", "what wifi am I on", "how long has my Mac been up" | Live state, read not guessed. |
+| "turn the brightness down" | Screen brightness. |
+| "add lunch with Sam to my calendar Friday at noon" | Creates a calendar event. |
+| "type out the following…" | Types into whatever app is in front. **Confirmed first.** |
+| "empty the trash" | **Confirmed first** — it is permanent. |
 | "continue working on apex sky" | Runs Claude Code in that project. **Confirmed out loud first** — see below. |
+
+## Your Claude Code conversations
+
+The **…** menu opens a browser for every Claude Code session on your Mac, read
+straight from `~/.claude/projects`. Searchable by title or project, tappable to
+read the whole conversation. Nothing is written — it is a viewer.
+
+**Claude app and claude.ai chats cannot appear here.** Those live on Anthropic's
+servers with no local copy and no API to read them, so nothing running on your
+Mac can reach them. Only Claude Code keeps transcripts on disk.
+
+Sessions the listener itself creates while routing voice commands are filtered
+out, since they are not conversations worth browsing.
+
+## Shortcuts
+
+`run_shortcut` calls the macOS `shortcuts` CLI, and the listener passes your
+actual shortcut names to Claude so it can pick the right one. Anything you build
+in the Shortcuts app becomes voice-callable without touching this code. It is in
+the confirm list, so a shortcut never fires on a transcription alone.
 
 ## Context
 
@@ -407,6 +436,7 @@ ios/VoiceBridge/
   Message.swift          message model and action icons
   MessageRow.swift       bubbles, action badges, thinking indicator
   Haptics.swift          physical feedback
+  SessionsView.swift     Claude Code conversation browser
   SettingsView.swift     Mac address, shared secret, wake phrase
   VoiceCapture.swift     Bluetooth audio routing + on-device speech-to-text
   GlassesManager.swift   Meta toolkit registration and session
@@ -428,6 +458,7 @@ listener/
   mac_actions.py         Mac control: volume, notes, reminders, timers,
                          clipboard, messages, status, search
   conversation.py        rolling history, and the context fed back to Claude
+  sessions.py            read-only browser for Claude Code transcripts
   pending.py             actions parked waiting for you to say yes
   config.example.toml    template for your config.toml
   run.sh                 starts the listener

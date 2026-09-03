@@ -15,6 +15,7 @@ struct ChatScreen: View {
     @State private var permissionsGranted = false
     @State private var macReachable: Bool?
     @State private var confirmingClear = false
+    @State private var showingSessions = false
 
     var body: some View {
         NavigationStack {
@@ -29,6 +30,9 @@ struct ChatScreen: View {
             .toolbar { toolbarItems }
             .sheet(isPresented: $showingSettings, onDismiss: { Task { await refreshMac() } }) {
                 SettingsView().environmentObject(settings)
+            }
+            .sheet(isPresented: $showingSessions) {
+                SessionsView().environmentObject(settings)
             }
             .confirmationDialog("Clear the conversation?",
                                 isPresented: $confirmingClear, titleVisibility: .visible) {
@@ -286,7 +290,14 @@ struct ChatScreen: View {
             .disabled(model.messages.isEmpty)
         }
         ToolbarItem(placement: .topBarTrailing) {
-            Button { showingSettings = true } label: { Image(systemName: "gearshape") }
+            Menu {
+                Button("Claude Code sessions", systemImage: "chevron.left.forwardslash.chevron.right") {
+                    showingSessions = true
+                }
+                Button("Settings", systemImage: "gearshape") { showingSettings = true }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
         }
     }
 
