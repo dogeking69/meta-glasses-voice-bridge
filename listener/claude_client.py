@@ -60,6 +60,18 @@ Actions:
    something up rather than just be told.
    params: {"query": "<search terms>"}
 
+9. "set_timer" - a countdown that notifies on the Mac when it finishes.
+   params: {"seconds": <number>, "label": "<what it is for>"}
+
+10. "clipboard" - read or write the Mac's clipboard.
+    params: {"mode": "read"} or {"mode": "write", "text": "<what to copy>"}
+
+11. "open_url" - open a specific web page.
+    params: {"url": "<the address>"}
+
+12. "send_message" - send an iMessage. Always confirmed out loud first.
+    params: {"to": "<name or number>", "text": "<the message>"}
+
 Rules:
 - Prefer answering directly with "ask_claude" over opening things.
 - If an app or project is not in the allowed lists, use "ask_claude" and say

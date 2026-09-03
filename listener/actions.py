@@ -41,6 +41,12 @@ def describe(action: str, params: dict, config: dict) -> str:
     if action == "system_control":
         command = str(params.get("command", "")).replace("_", " ")
         return f"About to {command}. Say yes or no."
+    if action == "send_message":
+        return (
+            f"About to message {params.get('to', '')} saying: "
+            f"{params.get('text', '')}. Say yes to send, no to cancel, "
+            "or say what to change."
+        )
     return f"About to run {action}. Say yes or no."
 
 
@@ -66,6 +72,14 @@ def run(action: str, params: dict, speak: str, config: dict) -> str:
             return mac_actions.get_status(params, config)
         if action == "search_web":
             return mac_actions.search_web(params, speak)
+        if action == "set_timer":
+            return mac_actions.set_timer(params)
+        if action == "clipboard":
+            return mac_actions.clipboard(params)
+        if action == "open_url":
+            return mac_actions.open_url(params, speak)
+        if action == "send_message":
+            return mac_actions.send_message(params)
     except MacError as exc:
         raise ActionError(str(exc)) from exc
 

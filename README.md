@@ -209,6 +209,9 @@ transcription can never run a command that is not listed here.
 | "remind me to…" | Adds to the Mac's Reminders app. |
 | "what time is it", "what's my battery", "what's playing", "what's next on my calendar" | Reads live state off the Mac. |
 | "look up …" | Opens a web search on the Mac. |
+| "set a timer for ten minutes" | Counts down and notifies on the Mac. |
+| "copy hello world to my clipboard", "what's on my clipboard" | Reads and writes the Mac clipboard. |
+| "text mom saying I'll be late" | Sends an iMessage. **Confirmed out loud first.** |
 | "continue working on apex sky" | Runs Claude Code in that project. **Confirmed out loud first** — see below. |
 
 ## Context
@@ -223,13 +226,27 @@ to Claude, so pronouns and follow-ups resolve against what was actually said:
 Depth is `context_turns` in `config.toml`. History lives in `listener/history.json`,
 which is gitignored — it is a record of everything you have said.
 
-## History tab
+## The app
 
-The app has three tabs: **Talk**, **History**, **Settings**. History pulls from
-the listener rather than the phone, so it survives reinstalls and shows what
-actually ran: your words, the action, the reply, timestamps, and failures in
-orange. Pull to refresh; the trash button clears both the history and the context
-Claude sees.
+One screen, built like a modern AI chat app. The conversation is the interface.
+
+- **Type or talk.** A text field for when speaking is awkward, and a hold-to-talk
+  microphone next to it. Both go through exactly the same path.
+- **Suggestions** on an empty conversation, tappable to run.
+- **Action badges** under each reply say what actually ran — `set timer`,
+  `open app`, `take note` — so you can see it did the thing rather than just
+  talked about it.
+- **Confirmations** appear inline in orange with Confirm and Cancel buttons, or
+  you can just say yes.
+- **Status strip** at the top: which microphone is live, whether the Mac is
+  reachable, whether hands-free is listening. Tap to expand for detail.
+- **Long-press a message** to copy it, or "Say again" to re-run a command.
+- **Haptics** on send, success and failure, because the phone is usually in a
+  pocket.
+
+History comes from the listener, not the phone, so it survives reinstalls and
+reflects what actually ran. The compose button clears both the conversation and
+the context Claude sees.
 
 To allow another app, add a line to `[actions.open_app]` in `config.toml`:
 `slack = "Slack"` — the left side is what you say, the right side is the real
@@ -384,10 +401,13 @@ shows elapsed listening time instead, which is what actually predicts the drain.
 ```
 ios/VoiceBridge/
   VoiceBridgeApp.swift   app entry, Meta toolkit setup, registration callback
-  ContentView.swift      the three tabs
+  ContentView.swift      hosts the chat screen
+  ChatScreen.swift       the whole interface
+  ChatModel.swift        conversation state and the round trip to the Mac
+  Message.swift          message model and action icons
+  MessageRow.swift       bubbles, action badges, thinking indicator
+  Haptics.swift          physical feedback
   SettingsView.swift     Mac address, shared secret, wake phrase
-  TalkView.swift         the Talk tab
-  ChatView.swift         the History tab
   VoiceCapture.swift     Bluetooth audio routing + on-device speech-to-text
   GlassesManager.swift   Meta toolkit registration and session
   ListenerClient.swift   signed requests to the Mac
@@ -405,7 +425,8 @@ listener/
   server.py              the local server, signature checking, confirmations
   claude_client.py       runs the Claude Code CLI, parses its JSON
   actions.py             the allowed actions, and how they are described aloud
-  mac_actions.py         Mac control: volume, notes, reminders, status, search
+  mac_actions.py         Mac control: volume, notes, reminders, timers,
+                         clipboard, messages, status, search
   conversation.py        rolling history, and the context fed back to Claude
   pending.py             actions parked waiting for you to say yes
   config.example.toml    template for your config.toml

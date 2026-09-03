@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import subprocess
+import threading
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -195,3 +196,91 @@ def search_web(params: dict, speak: str) -> str:
         raise MacError("There was nothing to search for.")
     subprocess.run(["open", f"https://duckduckgo.com/?q={quote_plus(query)}"], timeout=15)
     return speak or f"Searching for {query}."
+
+
+# MARK: - timers
+
+def _notify(title: str, body: str) -> None:
+    escaped_title = title.replace('"', "'")
+    escaped_body = body.replace('"', "'")
+    subprocess.run(
+        ["osascript", "-e",
+         f'display notification "{escaped_body}" with title "{escaped_title}" sound name "Glass"'],
+        capture_output=True, timeout=15,
+    )
+
+
+def set_timer(params: dict) -> str:
+    """Fires a Mac notification after a delay. A thread is enough — this is a
+    personal tool, and a timer that dies with the listener is acceptable."""
+    try:
+        seconds = int(float(params.get("seconds", 0)))
+    except (TypeError, ValueError):
+        raise MacError("I did not catch how long to set the timer for.") from None
+    if seconds <= 0:
+        raise MacError("I did not catch how long to set the timer for.")
+    if seconds > 24 * 3600:
+        raise MacError("That timer is longer than a day. Use a reminder instead.")
+
+    label = str(params.get("label", "")).strip() or "Timer"
+    threading.Timer(seconds, _notify, args=(label, "Time is up.")).start()
+
+    if seconds < 60:
+        spoken = f"{seconds} seconds"
+    elif seconds % 60 == 0:
+        minutes = seconds // 60
+        spoken = f"{minutes} minute" + ("s" if minutes != 1 else "")
+    else:
+        spoken = f"{seconds // 60} minutes {seconds % 60} seconds"
+    return f"Timer set for {spoken}."
+
+
+# MARK: - clipboard
+
+def clipboard(params: dict) -> str:
+    mode = str(params.get("mode", "read")).strip().lower()
+
+    if mode == "read":
+        text = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=10).stdout.strip()
+        if not text:
+            return "Your clipboard is empty."
+        return f"Your clipboard says: {text[:400]}"
+
+    if mode == "write":
+        text = str(params.get("text", ""))
+        if not text:
+            raise MacError("There was nothing to copy.")
+        subprocess.run(["pbcopy"], input=text, text=True, timeout=10)
+        return "Copied to your clipboard."
+
+    raise MacError("I can read or write the clipboard.")
+
+
+# MARK: - open_url
+
+def open_url(params: dict, speak: str) -> str:
+    url = str(params.get("url", "")).strip()
+    if not url:
+        raise MacError("There was no address to open.")
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    subprocess.run(["open", url], timeout=15)
+    return speak or "Opening it now."
+
+
+# MARK: - send_message
+
+def send_message(params: dict) -> str:
+    """iMessage via AppleScript. Always behind a spoken confirmation."""
+    recipient = str(params.get("to", "")).strip()
+    text = str(params.get("text", "")).strip()
+    if not recipient or not text:
+        raise MacError("I need both who to message and what to say.")
+
+    esc_to = recipient.replace("\\", "\\\\").replace('"', '\\"')
+    esc_text = text.replace("\\", "\\\\").replace('"', '\\"')
+    osascript(
+        f'tell application "Messages" to send "{esc_text}" to '
+        f'buddy "{esc_to}" of (1st service whose service type = iMessage)'
+    )
+    return f"Message sent to {recipient}."
