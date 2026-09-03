@@ -90,6 +90,15 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         print(f"  {self.address_string()} {fmt % args}", flush=True)
 
+    def handle_one_request(self) -> None:
+        # Phones drop connections all the time — moving between Wi-Fi and
+        # cellular, locking the screen. Without this, each one prints a full
+        # traceback and buries the useful log lines.
+        try:
+            super().handle_one_request()
+        except (ConnectionResetError, BrokenPipeError, TimeoutError):
+            self.close_connection = True
+
     def _respond(self, status: int, payload: dict) -> None:
         body = json.dumps(payload).encode()
         self.send_response(status)
