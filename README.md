@@ -109,6 +109,17 @@ It prints every address your phone could use, and announces itself on the
 network so the app can find it without you typing any of them. Leave this
 window open; `Ctrl+C` stops it.
 
+**Step 5 (optional). Have it start by itself.** Once it works, you can stop
+babysitting the Terminal window:
+
+```bash
+./listener/service.sh install
+```
+
+That installs it as a login item, starts it now, and starts it again every time
+you log in. See [Running it as a service](#running-it-as-a-service) for the rest
+of the commands.
+
 ---
 
 ## Part 2 — Set up the iPhone app
@@ -400,6 +411,37 @@ minutes.
 
 ---
 
+## Running it as a service
+
+`./listener/run.sh` needs a Terminal window open for as long as you want the
+assistant to work. Installing it as a service removes that:
+
+```bash
+./listener/service.sh install
+```
+
+| Command | What it does |
+|---|---|
+| `install` | Start now, and at every login. Safe to run again after a change. |
+| `logs` | Watch what it is doing. `Ctrl+C` stops watching, not the service. |
+| `status` | Whether it is loaded, and whether it actually answers. |
+| `restart` | Pick up an edit to `config.toml`. |
+| `stop` | Stop until the next login. |
+| `uninstall` | Remove it. Logs are left behind for you to delete. |
+
+A background service has no window, so `logs` and `status` are how you see
+anything at all. Output goes to `~/Library/Logs/VoiceBridge/`.
+
+Two things `install` handles that catch people out. macOS still ships Python
+3.9 at `/usr/bin/python3`, which has no `tomllib` and cannot read the config, so
+the absolute path of a new enough Python is written into the service. And
+`launchd` gives a job almost no `PATH`, so a `binary = "claude"` that works in
+your shell would not be found — the service is given a `PATH` covering Homebrew,
+`~/.local/bin` and `/usr/local/bin`, and `install` warns you if your CLI is
+somewhere else.
+
+---
+
 ## Using it away from home
 
 The listener is local-network only. To reach your Mac from anywhere, use
@@ -521,6 +563,7 @@ shows elapsed listening time instead, which is what actually predicts the drain.
 | "Address already in use" | The listener is already running in another Terminal window. |
 | No Macs in the pairing list | Phone and Mac are on different Wi-Fi networks, the listener is not running, or the phone refused the local network permission (Settings → Voice Bridge → Local Network). |
 | "No pairing window is open" | The two minutes ran out. Run `./listener/pair.sh` again. |
+| Service says "answering no" | Look at `./listener/service.sh logs`. Usually a bad `config.toml`, or the port is already taken by a listener you started by hand. |
 
 ---
 
@@ -571,6 +614,7 @@ listener/
   config.example.toml    template for your config.toml
   run.sh                 starts the listener
   pair.sh                connects a phone without typing the secret
+  service.sh             install, logs, status, restart, stop, uninstall
 ```
 
 ---

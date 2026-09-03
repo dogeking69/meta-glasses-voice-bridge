@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import sys
 import time
 import tomllib
@@ -439,7 +440,10 @@ def main() -> None:
     print(f"  discoverable   {'yes, as ' + name if advertising else 'no (dns-sd would not start)'}")
     print(f"  claude cli     {CONFIG['claude']['binary']} (model: {CONFIG['claude'].get('model')})")
     print("  to connect a phone, run ./pair.sh in another window")
-    print("  press Ctrl+C to stop\n", flush=True)
+    if os.environ.get("VOICEBRIDGE_SERVICE"):
+        print("  stop it with   ./service.sh stop\n", flush=True)
+    else:
+        print("  press Ctrl+C to stop\n", flush=True)
 
     try:
         server.serve_forever()
