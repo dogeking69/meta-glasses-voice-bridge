@@ -9,6 +9,8 @@ struct ContentView: View {
 
     @State private var status = "Hold the button and speak."
     @State private var reply = ""
+    /// Set when the Mac is waiting for you to approve an action. Nothing has run.
+    @State private var pending: (id: String, text: String)?
     @State private var isSending = false
     @State private var permissionsGranted = false
     @State private var showingSettings = false
@@ -19,6 +21,7 @@ struct ContentView: View {
                 statusPanel
                 Spacer()
                 transcriptPanel
+                if pending != nil { confirmationPanel }
                 Spacer()
                 talkButton
                 Text(status)
@@ -105,10 +108,40 @@ struct ContentView: View {
             if !reply.isEmpty {
                 Text(reply)
                     .font(.body)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(pending == nil ? .blue : .orange)
                     .multilineTextAlignment(.center)
             }
         }
+        .padding(.horizontal)
+    }
+
+    /// Shown while an action is waiting on you. Say yes, say no, say what to
+    /// change — or use these buttons if speaking is awkward.
+    private var confirmationPanel: some View {
+        VStack(spacing: 10) {
+            Label("Waiting for your OK", systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.orange)
+
+            HStack(spacing: 12) {
+                Button("Cancel", role: .cancel) {
+                    Task { await respond(.no) }
+                }
+                .buttonStyle(.bordered)
+
+                Button("Confirm") {
+                    Task { await respond(.yes) }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            Text("Or hold the button and say yes, no, or what to change.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal)
     }
 
@@ -159,11 +192,29 @@ struct ContentView: View {
                 status = "I did not catch that. Try again."
                 return
             }
-            await send(transcript)
+            if pending != nil {
+                await respond(SpokenDecision.parse(transcript), transcript: transcript)
+            } else {
+                await send(transcript)
+            }
         }
     }
 
     private func send(_ transcript: String) async {
+        await perform { try await $0.send(transcript: transcript) }
+    }
+
+    /// Answer a pending confirmation, by voice or by button.
+    private func respond(_ decision: ListenerClient.Decision, transcript: String? = nil) async {
+        guard let pendingId = pending?.id else { return }
+        pending = nil
+        status = decision == .edit ? "Rethinking…" : "Working…"
+        await perform {
+            try await $0.confirm(pendingId: pendingId, decision: decision, transcript: transcript)
+        }
+    }
+
+    private func perform(_ call: (ListenerClient) async throws -> ListenerClient.Reply) async {
         guard let baseURL = settings.baseURL else {
             status = "Set your Mac's address in Settings."
             return
@@ -174,12 +225,21 @@ struct ContentView: View {
 
         let client = ListenerClient(baseURL: baseURL, sharedSecret: settings.sharedSecret)
         do {
-            let result = try await client.send(transcript: transcript)
+            let result = try await call(client)
             let spoken = result.speak ?? result.error ?? "Done."
             reply = spoken
-            status = result.ok ? (result.action ?? "Done.") : "Something went wrong."
+
+            if result.needsConfirmation == true, let id = result.pendingId {
+                // Nothing has run. Read it back and wait.
+                pending = (id: id, text: spoken)
+                status = "Say yes, no, or what to change."
+            } else {
+                pending = nil
+                status = result.ok ? (result.action ?? "Done.") : "Something went wrong."
+            }
             speaker.say(spoken)
         } catch {
+            pending = nil
             reply = ""
             status = error.localizedDescription
         }

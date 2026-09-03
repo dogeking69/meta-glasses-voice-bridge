@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		1A0000000000000000000011 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		1A0000000000000000000003 /* VoiceBridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoiceBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1A0000000000000000000011 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -111,6 +111,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 			);
+			preferredProjectObjectVersion = 77;
 			productRefGroup = 1A0000000000000000000005 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";

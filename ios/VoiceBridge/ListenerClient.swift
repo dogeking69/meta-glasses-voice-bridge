@@ -16,13 +16,34 @@ struct ListenerClient {
         let action: String?
         let speak: String?
         let error: String?
+        /// True when the Mac has NOT run anything yet and is reading the action
+        /// back for you to approve.
+        let needsConfirmation: Bool?
+        let pendingId: String?
+    }
+
+    /// What you said in reply to a spoken confirmation.
+    enum Decision: String {
+        case yes, no, edit
     }
 
     func send(transcript: String) async throws -> Reply {
-        let body = try JSONEncoder().encode(["transcript": transcript])
+        try await post(path: "command", fields: ["transcript": transcript])
+    }
+
+    /// Answer a pending confirmation. `transcript` carries the correction when
+    /// the decision is `.edit`.
+    func confirm(pendingId: String, decision: Decision, transcript: String? = nil) async throws -> Reply {
+        var fields = ["pending_id": pendingId, "decision": decision.rawValue]
+        if let transcript { fields["transcript"] = transcript }
+        return try await post(path: "confirm", fields: fields)
+    }
+
+    private func post(path: String, fields: [String: String]) async throws -> Reply {
+        let body = try JSONEncoder().encode(fields)
         let timestamp = String(Int(Date().timeIntervalSince1970))
 
-        var request = URLRequest(url: baseURL.appendingPathComponent("command"))
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.httpBody = body
         request.timeoutInterval = 90
@@ -32,7 +53,9 @@ struct ListenerClient {
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let reply = try? JSONDecoder().decode(Reply.self, from: data) else {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard let reply = try? decoder.decode(Reply.self, from: data) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             throw ListenerError.badResponse(status: code)
         }

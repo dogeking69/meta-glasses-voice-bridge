@@ -179,6 +179,7 @@ transcription can never run a command that is not listed here.
 | You say | What happens |
 |---|---|
 | "open spotify" | Opens Spotify on your Mac. Only apps listed under `[actions.open_app]` in `config.toml` are allowed. |
+| "continue working on apex sky" | Runs Claude Code in that project folder. **Confirmed out loud first** — see below. |
 | anything else | Claude answers, and the answer is read aloud through the glasses. |
 
 To allow another app, add a line to `[actions.open_app]` in `config.toml`:
@@ -187,6 +188,64 @@ app name. Restart the listener afterwards.
 
 To add a genuinely new kind of action, you edit two places: describe it in the
 prompt in `listener/claude_client.py`, and implement it in `listener/actions.py`.
+
+---
+
+## Say-yes-first confirmation
+
+Anything listed under `[confirm] require` in `config.toml` is never run straight
+off a transcription. Instead the Mac reads back exactly what it is about to do:
+
+> *"About to run Claude Code in apex-sky, with the instruction: continue the work
+> in progress on this project. Say yes to run it, no to cancel, or say what to
+> change."*
+
+You then hold the button and say one of:
+
+- **"yes"** (or yeah, go ahead, do it) — it runs.
+- **"no"** (or cancel, never mind, stop) — it is dropped.
+- **anything else** — treated as a correction. The Mac re-plans and reads the new
+  version back for approval. Nothing runs until you actually say yes.
+
+Or tap **Confirm** / **Cancel** on screen if speaking is awkward.
+
+The read-back sentence is built by the listener from the *resolved* action and
+its real target folder, not from Claude's own description, so what you hear is
+always what will actually run. The parser is deliberately strict: only a short,
+unambiguous phrase counts as yes or no. Something like *"no, use the other
+project"* is an edit, not a cancel — the failure direction is always "ask again",
+never "run it anyway". Each confirmation token works once and expires after three
+minutes.
+
+---
+
+## Using it away from home
+
+The listener is local-network only. To reach your Mac from anywhere, use
+[Tailscale](https://tailscale.com) — it is free for personal use, encrypted, and
+needs no port forwarding.
+
+1. Install Tailscale on your Mac and your iPhone, and sign in to the same account
+   on both.
+2. On the Mac, run `tailscale ip -4` to get its Tailscale address (starts `100.`).
+3. Put that address in the app's Settings instead of your home IP. It works on
+   your home Wi-Fi and on cellular alike.
+
+Do **not** port-forward the listener to the public internet instead. A shared
+secret is enough for your own LAN and for Tailscale's private network; it is not
+enough to sit exposed on the open internet.
+
+### Triggering it without unlocking your phone
+
+There is no way for a third-party app to hook the "Hey Meta" wake word — Meta
+does not expose it, and no code here can change that. The closest alternatives:
+
+- **Action Button** (iPhone 15 Pro and later): Settings → Action Button → swipe to
+  **Shortcut** → pick **Open App** → Voice Bridge. One squeeze opens it.
+- **Siri**: create a Shortcut named "Voice Bridge" that opens the app, then say
+  "Hey Siri, Voice Bridge".
+- **Back Tap**: Settings → Accessibility → Touch → Back Tap → Double Tap → your
+  shortcut.
 
 ---
 
@@ -200,6 +259,10 @@ prompt in `listener/claude_client.py`, and implement it in `listener/actions.py`
 - The shared secret lives in `config.toml` (gitignored) on the Mac and in the
   Keychain on the phone. It is never in source code.
 - Speech-to-text runs on the iPhone, so your audio is not uploaded anywhere.
+- Voice-triggered coding work is limited to folders you list in `config.toml`. A
+  misheard project name is refused, not guessed at. Inside those folders Claude
+  Code may read, edit and run commands, but `git push`, `rm` and `sudo` are
+  blocked by `disallowed_tools`.
 
 ---
 
@@ -226,13 +289,15 @@ ios/VoiceBridge/
   GlassesManager.swift   Meta toolkit registration and session
   ListenerClient.swift   signed requests to the Mac
   Speaker.swift          reads replies aloud
+  SpokenDecision.swift   parses a spoken yes / no / correction
   SettingsStore.swift    saved settings
   Keychain.swift         secret storage
 
 listener/
-  server.py              the local server, signature checking
+  server.py              the local server, signature checking, confirmations
   claude_client.py       runs the Claude Code CLI, parses its JSON
-  actions.py             the allowed actions
+  actions.py             the allowed actions, and how they are described aloud
+  pending.py             actions parked waiting for you to say yes
   config.example.toml    template for your config.toml
   run.sh                 starts the listener
 ```

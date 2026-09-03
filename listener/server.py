@@ -22,6 +22,7 @@ from pathlib import Path
 
 import actions
 import claude_client
+from pending import Pending, PendingStore
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.toml"
 MAX_BODY_BYTES = 64 * 1024
@@ -46,6 +47,10 @@ def load_config() -> dict:
 
 
 CONFIG = load_config()
+PENDING = PendingStore(CONFIG.get("confirm", {}).get("timeout_seconds", 180))
+
+# Actions that are read back to you and only run once you say yes.
+NEEDS_CONFIRMATION = set(CONFIG.get("confirm", {}).get("require", ["claude_code"]))
 
 
 def lan_ip() -> str:
@@ -100,7 +105,7 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(404, {"ok": False, "error": "Not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/command":
+        if self.path not in ("/command", "/confirm"):
             self._respond(404, {"ok": False, "error": "Not found"})
             return
 
@@ -122,44 +127,120 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            transcript = str(json.loads(body).get("transcript", "")).strip()
-        except (json.JSONDecodeError, AttributeError):
-            self._respond(400, {"ok": False, "error": "Body must be JSON with a transcript field."})
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            self._respond(400, {"ok": False, "error": "Body must be JSON."})
             return
 
+        if self.path == "/confirm":
+            self._handle_confirm(payload)
+            return
+
+        transcript = str(payload.get("transcript", "")).strip()
         if not transcript:
             self._respond(400, {"ok": False, "error": "Empty transcript."})
             return
-
         self._handle_transcript(transcript)
 
     def _handle_transcript(self, transcript: str) -> None:
-        allowed_apps = CONFIG.get("actions", {}).get("open_app", {})
-        claude_config = claude_client.ClaudeConfig(
-            binary=CONFIG["claude"]["binary"],
-            model=CONFIG["claude"].get("model", "sonnet"),
-            timeout_seconds=CONFIG["claude"].get("timeout_seconds", 60),
-        )
-
         print(f'\n> heard: "{transcript}"', flush=True)
         started = time.monotonic()
 
         try:
-            command = claude_client.ask(transcript, list(allowed_apps), claude_config)
+            command = self._plan(transcript)
         except claude_client.ClaudeError as exc:
             print(f"  claude error: {exc}", flush=True)
             self._respond(502, {"ok": False, "error": str(exc), "speak": str(exc)})
             return
 
-        print(f"  action: {command['action']} {command.get('params')}", flush=True)
+        action = command["action"]
+        params = command.get("params") or {}
+        print(f"  action: {action} {params}", flush=True)
 
-        try:
-            spoken = actions.run(
-                command["action"],
-                command.get("params") or {},
-                command.get("speak") or "",
-                allowed_apps,
+        if action in NEEDS_CONFIRMATION:
+            self._offer(action, params, command.get("speak") or "", transcript)
+            return
+
+        self._execute(action, params, command.get("speak") or "", started)
+
+    def _handle_confirm(self, payload: dict) -> None:
+        token = str(payload.get("pending_id", ""))
+        pending = PENDING.take(token)
+        if pending is None:
+            message = "That confirmation expired. Say the command again."
+            self._respond(200, {"ok": False, "error": message, "speak": message})
+            return
+
+        decision = str(payload.get("decision", "")).strip().lower()
+
+        if decision == "no":
+            print("  cancelled", flush=True)
+            self._respond(200, {"ok": True, "action": "cancelled", "speak": "Cancelled."})
+            return
+
+        if decision == "edit":
+            # Re-plan from the original request plus the correction, then ask again.
+            amendment = str(payload.get("transcript", "")).strip()
+            if not amendment:
+                self._respond(400, {"ok": False, "error": "Edit needs a transcript."})
+                return
+            combined = f"{pending.transcript}\n\nCorrection from the user: {amendment}"
+            print(f'  edit: "{amendment}"', flush=True)
+            try:
+                command = self._plan(combined)
+            except claude_client.ClaudeError as exc:
+                self._respond(502, {"ok": False, "error": str(exc), "speak": str(exc)})
+                return
+            self._offer(
+                command["action"], command.get("params") or {},
+                command.get("speak") or "", combined,
             )
+            return
+
+        if decision != "yes":
+            self._respond(400, {"ok": False, "error": "decision must be yes, no or edit."})
+            return
+
+        print("  confirmed", flush=True)
+        self._execute(pending.action, pending.params, pending.speak, time.monotonic())
+
+    # MARK: helpers
+
+    def _plan(self, transcript: str) -> dict:
+        claude_config = claude_client.ClaudeConfig(
+            binary=CONFIG["claude"]["binary"],
+            model=CONFIG["claude"].get("model", "sonnet"),
+            timeout_seconds=CONFIG["claude"].get("timeout_seconds", 60),
+        )
+        return claude_client.ask(
+            transcript,
+            list(CONFIG.get("actions", {}).get("open_app", {})),
+            list(CONFIG.get("actions", {}).get("claude_code", {}).get("projects", {})),
+            claude_config,
+        )
+
+    def _offer(self, action: str, params: dict, speak: str, transcript: str) -> None:
+        """Read the action back and wait for a yes. Nothing has run yet."""
+        try:
+            description = actions.describe(action, params, CONFIG)
+        except actions.ActionError as exc:
+            print(f"  cannot plan: {exc}", flush=True)
+            self._respond(200, {"ok": False, "error": str(exc), "speak": str(exc)})
+            return
+
+        token = PENDING.put(Pending(action, params, speak, transcript))
+        print(f'  awaiting confirmation: "{description}"', flush=True)
+        self._respond(200, {
+            "ok": True,
+            "needs_confirmation": True,
+            "pending_id": token,
+            "action": action,
+            "speak": description,
+        })
+
+    def _execute(self, action: str, params: dict, speak: str, started: float) -> None:
+        try:
+            spoken = actions.run(action, params, speak, CONFIG)
         except actions.ActionError as exc:
             print(f"  action error: {exc}", flush=True)
             self._respond(200, {"ok": False, "error": str(exc), "speak": str(exc)})
@@ -167,7 +248,7 @@ class Handler(BaseHTTPRequestHandler):
 
         elapsed = time.monotonic() - started
         print(f'  said: "{spoken}"  ({elapsed:.1f}s)', flush=True)
-        self._respond(200, {"ok": True, "action": command["action"], "speak": spoken})
+        self._respond(200, {"ok": True, "action": action, "speak": spoken})
 
 
 def main() -> None:

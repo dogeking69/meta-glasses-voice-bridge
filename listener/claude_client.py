@@ -32,7 +32,17 @@ Available actions:
    Example: "open spotify" ->
      {"action":"open_app","params":{"app":"spotify"},"speak":"Opening Spotify."}
 
-2. "ask_claude" - anything else: a question, a request for information, a
+2. "claude_code" - the user wants real work done on one of their coding projects:
+   continuing a project, fixing something, adding a feature.
+   params: {"project": "<lowercase project name>", "instruction": "<what to do>"}
+   Allowed project names: %(projects)s
+   Put the user's request in "instruction", cleaned up but not reinterpreted.
+   Pick the project whose name best matches what they said. If no project
+   clearly matches, use "ask_claude" and say which projects you know about.
+   Example: "continue working on apex sky" ->
+     {"action":"claude_code","params":{"project":"apex-sky","instruction":"Continue the work in progress on this project."},"speak":""}
+
+3. "ask_claude" - anything else: a question, a request for information, a
    thought to think through. Put your actual answer in "speak".
    params: {}
    Keep "speak" under 60 words. It is read aloud through glasses speakers, so
@@ -40,8 +50,8 @@ Available actions:
    Example: "how far is the moon" ->
      {"action":"ask_claude","params":{},"speak":"About 239,000 miles on average."}
 
-If the user asks to open an app that is not in the allowed list, use "ask_claude"
-and say in "speak" that the app is not on the allowed list.
+If the user asks for an app or project that is not in the allowed lists, use
+"ask_claude" and say in "speak" which ones are available.
 """
 
 
@@ -56,11 +66,19 @@ class ClaudeConfig:
     timeout_seconds: int
 
 
-def ask(transcript: str, allowed_apps: list[str], config: ClaudeConfig) -> dict:
+def ask(
+    transcript: str,
+    allowed_apps: list[str],
+    allowed_projects: list[str],
+    config: ClaudeConfig,
+) -> dict:
     """Send the transcript to Claude and return the parsed command dict."""
     _WORKDIR.mkdir(exist_ok=True)
 
-    system = _SYSTEM_PROMPT % {"apps": ", ".join(sorted(allowed_apps))}
+    system = _SYSTEM_PROMPT % {
+        "apps": ", ".join(sorted(allowed_apps)) or "none configured",
+        "projects": ", ".join(sorted(allowed_projects)) or "none configured",
+    }
     cmd = [
         config.binary,
         "-p",

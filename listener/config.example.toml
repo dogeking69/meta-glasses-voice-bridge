@@ -21,6 +21,13 @@ binary = "claude"
 model = "sonnet"
 timeout_seconds = 60
 
+[confirm]
+# Actions that are read back to you out loud and only run once you say "yes".
+# Anything listed here can never be triggered by a single misheard sentence.
+require = ["claude_code"]
+# How long a pending confirmation stays valid.
+timeout_seconds = 180
+
 [actions.open_app]
 # Only these apps can be opened. Keys are what you SAY, values are the real app name.
 # Add more as you need them.
@@ -33,3 +40,18 @@ mail = "Mail"
 calendar = "Calendar"
 terminal = "Terminal"
 finder = "Finder"
+
+# Voice-triggered coding work. Only these folders can ever be worked on, so a
+# misheard path cannot send Claude somewhere unexpected. Keys are what you SAY.
+[actions.claude_code.projects]
+apex-sky = "~/Documents/claude/ApexSky-RunwayPath"
+apex-sky-aso = "~/Documents/claude/apex-sky-aso"
+stratosphere-explorer = "~/Documents/Codex/2026-05-15/files-mentioned-by-the-user-stratosphere/stratosphere-explorer-final"
+
+[actions.claude_code.settings]
+# What Claude Code may do inside those folders. It can read and edit files and
+# run commands, but pushing, deleting and sudo are blocked outright.
+allowed_tools = "Read Edit Write Glob Grep Bash"
+disallowed_tools = "Bash(git push:*) Bash(rm:*) Bash(sudo:*) Bash(curl:*)"
+# Coding tasks take longer than a question.
+timeout_seconds = 600
