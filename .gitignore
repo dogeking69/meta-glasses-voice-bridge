@@ -1,0 +1,14 @@
+# Secrets — never commit
+listener/config.toml
+*.env
+
+# Python
+__pycache__/
+*.pyc
+listener/.claude-workdir/
+
+# Xcode
+ios/**/xcuserdata/
+ios/**/*.xcworkspace/xcshareddata/
+ios/build/
+.DS_Store

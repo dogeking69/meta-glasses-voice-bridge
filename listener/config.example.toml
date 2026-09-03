@@ -1,0 +1,35 @@
+# Copy this file to config.toml and edit it. config.toml is gitignored.
+
+[server]
+# 0.0.0.0 = listen on all network interfaces so your phone can reach this Mac.
+# Change to "127.0.0.1" to allow only this computer (useful for testing).
+host = "0.0.0.0"
+port = 8765
+
+[auth]
+# Shared secret. Generate one with:  python3 -c "import secrets; print(secrets.token_hex(32))"
+# Paste the SAME value into the iOS app's Settings screen.
+shared_secret = "CHANGE-ME"
+# Requests older than this many seconds are rejected (blocks replay attacks).
+max_skew_seconds = 60
+
+[claude]
+# Path to the Claude Code CLI. Uses your Claude subscription, not an API key.
+# Leave as "claude" if it is on your PATH; otherwise run `which claude` and paste
+# the full path here.
+binary = "claude"
+model = "sonnet"
+timeout_seconds = 60
+
+[actions.open_app]
+# Only these apps can be opened. Keys are what you SAY, values are the real app name.
+# Add more as you need them.
+spotify = "Spotify"
+music = "Music"
+safari = "Safari"
+notes = "Notes"
+messages = "Messages"
+mail = "Mail"
+calendar = "Calendar"
+terminal = "Terminal"
+finder = "Finder"
