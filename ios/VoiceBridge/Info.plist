@@ -64,9 +64,26 @@
 		<string>external-accessory</string>
 	</array>
 
-	<!-- The listener is plain HTTP on your own LAN, which iOS blocks by default. -->
+	<!--
+	  The listener is plain HTTP on a private network, which iOS blocks by
+	  default. NSAllowsLocalNetworking alone is not enough: it only exempts
+	  .local hostnames and link-local addresses, not private IPs like
+	  192.168.x.x or a Tailscale 100.x address, which is what you actually type
+	  into Settings.
+
+	  Arbitrary loads are therefore allowed, but only for app traffic — web
+	  content stays protected. This is safe here because the app talks to
+	  exactly one host, the one you configure, and every request is signed with
+	  HMAC-SHA256 so the Mac rejects anything it did not expect. Over Tailscale
+	  the traffic is also inside a WireGuard tunnel, so it is encrypted on the
+	  wire despite being HTTP.
+	-->
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>

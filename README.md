@@ -296,6 +296,13 @@ shows elapsed listening time instead, which is what actually predicts the drain.
   enough protection for a public endpoint.
 - The shared secret lives in `config.toml` (gitignored) on the Mac and in the
   Keychain on the phone. It is never in source code.
+- The app sets `NSAllowsArbitraryLoads` because the listener is plain HTTP on a
+  private address, and iOS blocks that by default. `NSAllowsLocalNetworking`
+  alone is not enough — it exempts only `.local` hostnames and link-local
+  addresses, not `192.168.x.x` or a Tailscale `100.x` address. Web content keeps
+  its ATS protection. The app only ever talks to the single host you configure,
+  every request is HMAC-signed, and over Tailscale the traffic sits inside a
+  WireGuard tunnel, so it is encrypted on the wire despite being HTTP.
 - Speech-to-text runs on the iPhone, so your audio is not uploaded anywhere.
 - Voice-triggered coding work is limited to folders you list in `config.toml`. A
   misheard project name is refused, not guessed at. Inside those folders Claude
