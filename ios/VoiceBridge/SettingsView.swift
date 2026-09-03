@@ -33,6 +33,16 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    TextField(WakeWord.defaultPhrase, text: $settings.wakePhrase)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                } header: {
+                    Text("Wake phrase")
+                } footer: {
+                    Text("What you say in hands-free mode. Two distinct words work best — the glasses mic is phone-call quality, so single common words misfire. Leave empty for \"\(WakeWord.defaultPhrase)\".")
+                }
+
+                Section {
                     Button {
                         Task { await test() }
                     } label: {

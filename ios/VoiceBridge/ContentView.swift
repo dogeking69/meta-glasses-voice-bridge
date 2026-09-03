@@ -3,9 +3,12 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var glasses: GlassesManager
     @EnvironmentObject private var settings: SettingsStore
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var capture = VoiceCapture()
+    @StateObject private var session: ListeningSession
     @State private var speaker = Speaker()
+    @State private var notificationTicker: Timer?
 
     @State private var status = "Hold the button and speak."
     @State private var reply = ""
@@ -15,6 +18,12 @@ struct ContentView: View {
     @State private var permissionsGranted = false
     @State private var showingSettings = false
 
+    init() {
+        let capture = VoiceCapture()
+        _capture = StateObject(wrappedValue: capture)
+        _session = StateObject(wrappedValue: ListeningSession(capture: capture))
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
@@ -23,6 +32,7 @@ struct ContentView: View {
                 transcriptPanel
                 if pending != nil { confirmationPanel }
                 Spacer()
+                handsFreeButton
                 talkButton
                 Text(status)
                     .font(.footnote)
@@ -46,6 +56,22 @@ struct ContentView: View {
                 permissionsGranted = await capture.requestPermissions()
                 glasses.start()
                 if !settings.isConfigured { showingSettings = true }
+
+                session.onUtterance = { text, isConfirmationReply in
+                    Task { await handleHandsFree(text, isConfirmationReply: isConfirmationReply) }
+                }
+                if PendingIntent.toggleRequested {
+                    PendingIntent.toggleRequested = false
+                    toggleHandsFree()
+                }
+            }
+            .onChange(of: scenePhase) { _ in
+                // The Action Button relaunches or foregrounds the app to run the
+                // intent, so the flag is picked up here too.
+                if PendingIntent.toggleRequested {
+                    PendingIntent.toggleRequested = false
+                    toggleHandsFree()
+                }
             }
         }
     }
@@ -63,6 +89,9 @@ struct ContentView: View {
             row("Mac",
                 value: settings.isConfigured ? "\(settings.host):\(settings.port)" : "Not set up",
                 good: settings.isConfigured)
+            row("Hands-free",
+                value: handsFreeStatus,
+                good: session.isRunning)
 
             if glasses.toolkitAvailable && !glasses.isRegistered {
                 Button("Connect glasses", action: glasses.register)
@@ -170,7 +199,34 @@ struct ContentView: View {
     }
 
     private var canTalk: Bool {
-        permissionsGranted && settings.isConfigured && !isSending
+        permissionsGranted && settings.isConfigured && !isSending && !session.isRunning
+    }
+
+    private var handsFreeStatus: String {
+        switch session.phase {
+        case .off: return "Off"
+        case .awaitingWake: return "Say \"\(settings.effectiveWakePhrase)\""
+        case .capturingCommand: return "Listening…"
+        case .awaitingConfirmation: return "Yes or no?"
+        case .busy: return "Working…"
+        }
+    }
+
+    /// Starts and stops hands-free mode. The same thing the Action Button does.
+    private var handsFreeButton: some View {
+        Button {
+            toggleHandsFree()
+        } label: {
+            Label(
+                session.isRunning ? "Stop hands-free" : "Start hands-free",
+                systemImage: session.isRunning ? "stop.circle.fill" : "waveform.circle.fill"
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(session.isRunning ? .red : .accentColor)
+        .disabled(!permissionsGranted || !settings.isConfigured)
+        .padding(.horizontal)
     }
 
     // MARK: - Actions
@@ -202,6 +258,50 @@ struct ContentView: View {
 
     private func send(_ transcript: String) async {
         await perform { try await $0.send(transcript: transcript) }
+    }
+
+    // MARK: - Hands-free
+
+    private func toggleHandsFree() {
+        guard permissionsGranted, settings.isConfigured else { return }
+
+        if session.isRunning {
+            session.stop()
+            notificationTicker?.invalidate()
+            notificationTicker = nil
+            ListeningNotification.clear()
+            status = "Hands-free off."
+        } else {
+            pending = nil
+            reply = ""
+            session.start(wakePhrase: settings.effectiveWakePhrase)
+            status = "Say \"\(settings.effectiveWakePhrase)\"."
+            refreshNotification()
+            notificationTicker = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
+                Task { @MainActor in refreshNotification() }
+            }
+        }
+    }
+
+    private func refreshNotification() {
+        guard session.isRunning else { return }
+        ListeningNotification.show(
+            phase: session.phase,
+            elapsed: session.elapsed,
+            wakePhrase: settings.effectiveWakePhrase,
+            glassesMic: capture.usingGlassesMic
+        )
+    }
+
+    /// One utterance from hands-free mode: either a new command, or an answer to
+    /// a confirmation that is already waiting.
+    private func handleHandsFree(_ text: String, isConfirmationReply: Bool) async {
+        if isConfirmationReply, pending != nil {
+            await respond(SpokenDecision.parse(text), transcript: text)
+        } else {
+            await send(text)
+        }
+        refreshNotification()
     }
 
     /// Answer a pending confirmation, by voice or by button.
@@ -237,11 +337,24 @@ struct ContentView: View {
                 pending = nil
                 status = result.ok ? (result.action ?? "Done.") : "Something went wrong."
             }
+            resumeListeningAfterSpeaking(awaitingConfirmation: pending != nil)
             speaker.say(spoken)
         } catch {
             pending = nil
             reply = ""
             status = error.localizedDescription
+            resumeListeningAfterSpeaking(awaitingConfirmation: false)
+            speaker.say("")
+        }
+    }
+
+    /// Recognition stays paused until the spoken reply finishes, otherwise the
+    /// app hears itself say the wake phrase back and loops.
+    private func resumeListeningAfterSpeaking(awaitingConfirmation: Bool) {
+        guard session.isRunning else { return }
+        speaker.onFinish = {
+            session.finishWork(awaitingConfirmation: awaitingConfirmation)
+            refreshNotification()
         }
     }
 }

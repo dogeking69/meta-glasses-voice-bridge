@@ -235,17 +235,55 @@ Do **not** port-forward the listener to the public internet instead. A shared
 secret is enough for your own LAN and for Tailscale's private network; it is not
 enough to sit exposed on the open internet.
 
-### Triggering it without unlocking your phone
+## Hands-free mode
 
 There is no way for a third-party app to hook the "Hey Meta" wake word — Meta
-does not expose it, and no code here can change that. The closest alternatives:
+does not expose it, and no code here can change that. So the app has its own.
 
-- **Action Button** (iPhone 15 Pro and later): Settings → Action Button → swipe to
-  **Shortcut** → pick **Open App** → Voice Bridge. One squeeze opens it.
-- **Siri**: create a Shortcut named "Voice Bridge" that opens the app, then say
-  "Hey Siri, Voice Bridge".
-- **Back Tap**: Settings → Accessibility → Touch → Back Tap → Double Tap → your
-  shortcut.
+**One squeeze of the Action Button starts a listening session.** After that you
+are hands-free until you squeeze again: say your wake phrase, then your command,
+as many times as you like.
+
+Set it up once: **Settings → Action Button** → swipe to **Shortcut** → pick
+**Toggle Voice Bridge Listening**. It also works from Siri ("Hey Siri, toggle
+Voice Bridge") and from Back Tap (Settings → Accessibility → Touch → Back Tap).
+
+### What you hear
+
+Hands-free mode is audible, so you never need to look at the phone:
+
+| Sound | Meaning |
+|---|---|
+| Rising two-tone | Session started — it is listening for the wake phrase |
+| Record-start beep | Wake phrase heard — say your command now |
+| Record-stop beep | Command captured, sending to your Mac |
+| Falling two-tone | Session stopped |
+
+A notification also sits in Notification Centre for as long as the session runs,
+showing elapsed time, which microphone is in use, and your iPhone battery.
+
+### The wake phrase
+
+Default is **"hey jarvis"**, editable in the app's Settings. Two distinct words
+work best. The glasses microphone is 8 kHz, so matching is fuzzy — "hey jarvas"
+and "hey jervis" both count — but single common words like "computer" will
+misfire during ordinary conversation.
+
+After the Mac reads back a confirmation, you do **not** need the wake phrase
+again; just say yes, no, or what to change within 30 seconds.
+
+### Why a session and not always-on
+
+Holding the Bluetooth hands-free link open keeps the glasses in call mode, which
+drains them roughly twice as fast as normal use and blocks music. A session you
+switch on for a few minutes costs little. Leaving it on all day would not.
+
+### What is not shown, and why
+
+The glasses battery percentage. `DeviceState.batteryLevel` existed in Device
+Access Toolkit v0.2 but was **removed by v0.8**; the current struct exposes only
+`thermalLevel`, and battery appears nowhere in the toolkit docs. The notification
+shows elapsed listening time instead, which is what actually predicts the drain.
 
 ---
 
@@ -290,6 +328,11 @@ ios/VoiceBridge/
   ListenerClient.swift   signed requests to the Mac
   Speaker.swift          reads replies aloud
   SpokenDecision.swift   parses a spoken yes / no / correction
+  WakeWord.swift         fuzzy wake-phrase matching for 8 kHz audio
+  ListeningSession.swift hands-free state machine
+  ListeningNotification.swift  the "listening" banner
+  ToggleListeningIntent.swift  Action Button / Siri / Shortcuts entry point
+  Chime.swift            audible cues
   SettingsStore.swift    saved settings
   Keychain.swift         secret storage
 

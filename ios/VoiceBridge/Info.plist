@@ -58,6 +58,8 @@
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
+		<!-- Keeps the microphone alive in hands-free mode when the screen locks. -->
+		<string>audio</string>
 		<string>bluetooth-peripheral</string>
 		<string>external-accessory</string>
 	</array>

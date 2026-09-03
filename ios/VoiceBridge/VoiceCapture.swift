@@ -1,30 +1,37 @@
 import AVFoundation
 import Foundation
 import Speech
+import UserNotifications
 
-/// Records from the glasses microphone and turns it into text on the device.
+/// Microphone plumbing: routes audio from the glasses and turns it into text.
 ///
-/// The glasses microphone reaches iOS as a normal Bluetooth hands-free (HFP)
-/// audio input — 8 kHz mono, the same as a phone call. That is why this class
-/// uses plain AVFoundation instead of the Meta toolkit: the toolkit has no
-/// microphone API.
+/// The glasses microphone reaches iOS as ordinary Bluetooth hands-free (HFP)
+/// audio — 8 kHz mono, the same as a phone call. That is why this uses plain
+/// AVFoundation instead of the Meta toolkit, which has no microphone API.
 ///
-/// Transcription uses Apple's on-device speech recognizer, so nothing is sent
-/// to a server here and no API key is involved.
+/// Transcription is Apple's on-device recognizer, so audio never leaves the
+/// phone. Two modes are supported: push-to-talk (`startRecording`) and a
+/// continuous stream (`startStreaming`) that `ListeningSession` drives.
 @MainActor
 final class VoiceCapture: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
+    @Published private(set) var isStreaming = false
     @Published private(set) var transcript = ""
     @Published private(set) var inputRouteName = "—"
     @Published private(set) var usingGlassesMic = false
     @Published var lastError: String?
+
+    /// Fires on every transcript change while streaming.
+    var onTranscript: ((String) -> Void)?
 
     private let engine = AVAudioEngine()
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
 
-    /// Ask for microphone and speech permissions. Call once, early.
+    // MARK: - Permissions
+
+    /// Microphone, speech recognition and notifications. Call once, early.
     func requestPermissions() async -> Bool {
         let mic: Bool
         if #available(iOS 17.0, *) {
@@ -46,17 +53,19 @@ final class VoiceCapture: NSObject, ObservableObject {
             lastError = "Speech recognition denied. Enable it in Settings."
             return false
         }
+
+        // Used for the "listening" notification. Not fatal if refused.
+        _ = try? await UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .sound])
         return true
     }
 
-    func startRecording() {
-        guard !isRecording else { return }
-        lastError = nil
-        transcript = ""
+    // MARK: - Push to talk
 
+    func startRecording() {
+        guard !isRecording, !isStreaming else { return }
         do {
-            try configureAudioSession()
-            try beginRecognition()
+            try beginAudio()
             isRecording = true
         } catch {
             lastError = error.localizedDescription
@@ -64,13 +73,10 @@ final class VoiceCapture: NSObject, ObservableObject {
         }
     }
 
-    /// Stops recording and returns the final transcript, or nil if nothing was heard.
+    /// Stops and returns the final transcript, or nil if nothing was heard.
     func stopRecording() async -> String? {
         guard isRecording else { return nil }
         isRecording = false
-
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
         request?.endAudio()
 
         // Give the recognizer a moment to emit its final, punctuated result.
@@ -81,12 +87,59 @@ final class VoiceCapture: NSObject, ObservableObject {
         return final.isEmpty ? nil : final
     }
 
-    // MARK: - Audio routing
+    // MARK: - Continuous streaming
+
+    func startStreaming() throws {
+        guard !isStreaming else { return }
+        try beginAudio()
+        isStreaming = true
+    }
+
+    func stopStreaming() {
+        guard isStreaming else { return }
+        isStreaming = false
+        teardown()
+    }
+
+    /// Starts a fresh recognition task, clearing the transcript but leaving the
+    /// audio engine running. Used after each command, and periodically because
+    /// a single recognition task does not run indefinitely.
+    func resetRecognition() {
+        guard isStreaming else { return }
+        task?.cancel()
+        task = nil
+        request?.endAudio()
+        request = nil
+        transcript = ""
+        do {
+            try beginRecognition()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    // MARK: - Audio
+
+    private func beginAudio() throws {
+        try configureAudioSession()
+        transcript = ""
+        try beginRecognition()
+
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            self?.request?.append(buffer)
+        }
+
+        engine.prepare()
+        try engine.start()
+    }
 
     private func configureAudioSession() throws {
         let session = AVAudioSession.sharedInstance()
 
-        // .voiceChat + Bluetooth HFP is what puts the glasses mic in play.
+        // .voiceChat plus Bluetooth HFP is what puts the glasses mic in play.
         // Without the Bluetooth option iOS silently falls back to the iPhone mic.
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .duckOthers])
         try session.setActive(true, options: .notifyOthersOnDeactivation)
@@ -99,8 +152,6 @@ final class VoiceCapture: NSObject, ObservableObject {
         inputRouteName = input?.portName ?? "Unknown"
         usingGlassesMic = (input?.portType == .bluetoothHFP)
     }
-
-    // MARK: - Recognition
 
     private func beginRecognition() throws {
         guard let recognizer, recognizer.isAvailable else {
@@ -119,22 +170,13 @@ final class VoiceCapture: NSObject, ObservableObject {
                 guard let self else { return }
                 if let result {
                     self.transcript = result.bestTranscription.formattedString
+                    self.onTranscript?(self.transcript)
                 }
                 if let error, self.isRecording {
                     self.lastError = error.localizedDescription
                 }
             }
         }
-
-        let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.removeTap(onBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            newRequest.append(buffer)
-        }
-
-        engine.prepare()
-        try engine.start()
     }
 
     private func teardown() {
