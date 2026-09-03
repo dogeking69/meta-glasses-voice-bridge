@@ -101,14 +101,14 @@ struct SettingsView: View {
     }
 
     private func test() async {
-        guard let baseURL = settings.baseURL else { return }
         isTesting = true
         defer { isTesting = false }
 
-        let client = ListenerClient(baseURL: baseURL, sharedSecret: settings.sharedSecret)
-        let reachable = await client.checkHealth()
+        // Tries every address pairing found, and keeps the one that answered,
+        // so a test run after moving network also fixes the setting.
+        let reachable = await settings.recoverAddress()
         testResult = reachable
-            ? "Reached your Mac."
+            ? "Reached your Mac at \(settings.host)."
             : "No answer. Check the listener is running and both devices are on the same Wi-Fi."
     }
 }

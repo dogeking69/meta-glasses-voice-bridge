@@ -84,6 +84,18 @@ final class SettingsStore: ObservableObject {
         return trimmed.isEmpty ? WakeWord.defaultPhrase : trimmed
     }
 
+    /// Find an address of this Mac that answers, switching to it if the one in
+    /// use has gone quiet. True when one of them worked.
+    func recoverAddress() async -> Bool {
+        guard let portNumber = Int(port) else { return false }
+        let candidates = [host] + otherHosts
+        guard let winner = await ListenerClient.firstReachable(hosts: candidates, port: portNumber) else {
+            return false
+        }
+        useHost(winner)
+        return true
+    }
+
     var isConfigured: Bool {
         !host.isEmpty && !sharedSecret.isEmpty && Int(port) != nil
     }

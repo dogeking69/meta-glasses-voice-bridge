@@ -130,7 +130,7 @@ final class ChatModel: ObservableObject {
         Haptics.tap()
 
         do {
-            let reply = try await call(client)
+            let reply = try await callTryingEveryAddress(client, call)
             let spoken = reply.speak ?? reply.error ?? "Done."
             let awaitingConfirmation = reply.needsConfirmation == true
 
@@ -160,6 +160,25 @@ final class ChatModel: ObservableObject {
             resumeListeningAfterSpeaking(awaitingConfirmation: false)
             speaker.say("")
             Haptics.success(.error)
+        }
+    }
+
+    /// Make the call, and if the network itself refuses, try the Mac's other
+    /// addresses and make it once more.
+    ///
+    /// Addresses move: a new lease at home, Tailscale when you are out. Pairing
+    /// already collected all of them, so the wearer should never have to think
+    /// about which one is current — least of all mid-sentence.
+    private func callTryingEveryAddress(
+        _ client: ListenerClient,
+        _ call: (ListenerClient) async throws -> ListenerClient.Reply
+    ) async throws -> ListenerClient.Reply {
+        do {
+            return try await call(client)
+        } catch {
+            guard error is URLError, let settings, await settings.recoverAddress(),
+                  let recovered = makeClient() else { throw error }
+            return try await call(recovered)
         }
     }
 

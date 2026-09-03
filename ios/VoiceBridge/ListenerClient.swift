@@ -196,6 +196,24 @@ struct ListenerClient {
         try await post(path: "history/clear", fields: [:])
     }
 
+    /// The first of these addresses that answers, in the order given.
+    ///
+    /// Pairing collects every address a Mac has — `.local`, its LAN address,
+    /// and Tailscale — and which one works changes with where you are and what
+    /// your router did overnight. Asking each in turn is quicker than asking
+    /// the wearer.
+    static func firstReachable(hosts: [String], port: Int, timeout: TimeInterval = 3) async -> String? {
+        for host in hosts where !host.isEmpty {
+            guard let url = URL(string: "http://\(host):\(port)/health") else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = timeout
+            guard let (_, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200 else { continue }
+            return host
+        }
+        return nil
+    }
+
     /// Quick check that the Mac is reachable, used by the Settings screen.
     func checkHealth() async -> Bool {
         var request = URLRequest(url: baseURL.appendingPathComponent("health"))

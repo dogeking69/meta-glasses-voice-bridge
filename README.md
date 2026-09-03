@@ -465,9 +465,16 @@ needs no port forwarding.
 
 1. Install Tailscale on your Mac and your iPhone, and sign in to the same account
    on both.
-2. On the Mac, run `tailscale ip -4` to get its Tailscale address (starts `100.`).
-3. Put that address in the app's Settings instead of your home IP. It works on
-   your home Wi-Fi and on cellular alike.
+2. Pair the phone as usual. Pairing collects the Mac's Tailscale address along
+   with the others, so there is nothing to look up and nothing to type.
+
+That is all. The app keeps every address the Mac answers on, and when the one it
+is using stops replying it tries the others and keeps whichever works — so
+walking out of the house, or coming home to a new DHCP lease, sorts itself out.
+You can also switch by hand in Settings, and **Test connection** does the same
+search.
+
+If you paired before installing Tailscale, pair again to pick up the new address.
 
 Do **not** port-forward the listener to the public internet instead. A shared
 secret is enough for your own LAN and for Tailscale's private network; it is not
