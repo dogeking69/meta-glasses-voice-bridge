@@ -71,6 +71,21 @@ that folder. Every command below is run from there.
 
 ## Part 1 — Set up the Mac listener
 
+The quick way, which does everything in this part for you:
+
+```bash
+./setup.sh
+```
+
+It checks what is missing before it changes anything and gives you the single
+command that fixes each thing, then writes your config file with a fresh secret,
+offers to start the listener at login, and opens a pairing window for the phone.
+
+The rest of this part is the same work done by hand. Read it if `./setup.sh`
+reported something it could not do, or if you would rather see each step.
+
+---
+
 **Step 1. Log in to Claude.** Open Terminal and run:
 
 ```bash
@@ -570,6 +585,8 @@ shows elapsed listening time instead, which is what actually predicts the drain.
 ## Files
 
 ```
+setup.sh                 one-command setup for the Mac half
+
 ios/VoiceBridge/
   VoiceBridgeApp.swift   app entry, Meta toolkit setup, registration callback
   ContentView.swift      hosts the chat screen
