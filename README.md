@@ -1,3 +1,32 @@
+| You say | What happens |
+|---|---|
+| "how far away is the moon" | Claude answers out loud. |
+| "and what about the sun" | Follow-ups work — recent turns are given back to Claude as context. |
+| "open spotify" | Opens an app. Only apps under `[actions.open_app]` in `config.toml`. |
+| "turn the volume up", "pause the music", "lock the screen" | Controls the Mac. |
+| "make a note that…" | Appends to `~/Documents/voice-notes.md`. |
+| "remind me to…" | Adds to the Mac's Reminders app. |
+| "what time is it", "what's my battery", "what's playing", "what's next on my calendar" | Reads live state off the Mac. |
+| "look up …" | Opens a web search on the Mac. |
+| "set a timer for ten minutes" | Counts down and notifies on the Mac. |
+| "copy hello world to my clipboard", "what's on my clipboard" | Reads and writes the Mac clipboard. |
+| "text mom saying I'll be late" | Sends an iMessage. **Confirmed out loud first.** |
+| "run my morning routine" | Runs one of your own macOS Shortcuts. **Confirmed first.** |
+| "quit Chrome", "switch to Notes" | Quit, hide or focus an app. **Confirmed first.** |
+| "find the file budget spreadsheet" | Spotlight search. |
+| "open my downloads folder" | Opens any file or folder. |
+| "what app am I in", "what wifi am I on", "how long has my Mac been up" | Live state, read not guessed. |
+| "turn the brightness down" | Screen brightness. |
+| "add lunch with Sam to my calendar Friday at noon" | Creates a calendar event. |
+| "type out the following…" | Types into whatever app is in front. **Confirmed first.** |
+| "empty the trash" | **Confirmed first** — it is permanent. |
+| "what am I looking at", "read this label" | Takes a photo through the glasses and describes it. |
+| "what's the weather" | Current conditions. |
+| "put this window on the left", "make it full screen" | Moves the front window. |
+| "turn on dark mode" | Switches appearance. |
+| "keep my Mac awake for an hour" | Stops it sleeping. |
+| "set the volume to thirty" | Volume by number, not just up and down. |
+| "continue working on apex sky" | Runs Claude Code in that project. **Confirmed out loud first** — see below. |
 <h1 align="center">Voice Bridge</h1>
 
 <p align="center">
@@ -241,35 +270,7 @@ Then in a `claude` session you can use `search_dat_docs`.
 Defined in `listener/actions.py`. Only these two exist on purpose — a bad
 transcription can never run a command that is not listed here.
 
-| You say | What happens |
-|---|---|
-| "how far away is the moon" | Claude answers out loud. |
-| "and what about the sun" | Follow-ups work — recent turns are given back to Claude as context. |
-| "open spotify" | Opens an app. Only apps under `[actions.open_app]` in `config.toml`. |
-| "turn the volume up", "pause the music", "lock the screen" | Controls the Mac. |
-| "make a note that…" | Appends to `~/Documents/voice-notes.md`. |
-| "remind me to…" | Adds to the Mac's Reminders app. |
-| "what time is it", "what's my battery", "what's playing", "what's next on my calendar" | Reads live state off the Mac. |
-| "look up …" | Opens a web search on the Mac. |
-| "set a timer for ten minutes" | Counts down and notifies on the Mac. |
-| "copy hello world to my clipboard", "what's on my clipboard" | Reads and writes the Mac clipboard. |
-| "text mom saying I'll be late" | Sends an iMessage. **Confirmed out loud first.** |
-| "run my morning routine" | Runs one of your own macOS Shortcuts. **Confirmed first.** |
-| "quit Chrome", "switch to Notes" | Quit, hide or focus an app. **Confirmed first.** |
-| "find the file budget spreadsheet" | Spotlight search. |
-| "open my downloads folder" | Opens any file or folder. |
-| "what app am I in", "what wifi am I on", "how long has my Mac been up" | Live state, read not guessed. |
-| "turn the brightness down" | Screen brightness. |
-| "add lunch with Sam to my calendar Friday at noon" | Creates a calendar event. |
-| "type out the following…" | Types into whatever app is in front. **Confirmed first.** |
-| "empty the trash" | **Confirmed first** — it is permanent. |
-| "what am I looking at", "read this label" | Takes a photo through the glasses and describes it. |
-| "what's the weather" | Current conditions. |
-| "put this window on the left", "make it full screen" | Moves the front window. |
-| "turn on dark mode" | Switches appearance. |
-| "keep my Mac awake for an hour" | Stops it sleeping. |
-| "set the volume to thirty" | Volume by number, not just up and down. |
-| "continue working on apex sky" | Runs Claude Code in that project. **Confirmed out loud first** — see below. |
+
 
 ## Looking through the glasses
 
