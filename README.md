@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/app-main.png" alt="Voice Bridge iOS app showing glasses, microphone and Mac connection status above a large hold-to-talk button" width="300">
+  <img src=" alt="Voice Bridge iOS app showing glasses, microphone and Mac connection status above a large hold-to-talk button" width="300">
 </p>
 
 An open-source companion app for the **Meta Wearables Device Access Toolkit
